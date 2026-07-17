@@ -3629,6 +3629,7 @@ describe("gateway Gmail hot reload handlers", () => {
     vi.useFakeTimers();
     const firstRef = { source: "env" as const, provider: "default", id: "TTS_FIRST" };
     const secondRef = { source: "env" as const, provider: "default", id: "TTS_SECOND" };
+    const thirdRef = { source: "env" as const, provider: "default", id: "TTS_THIRD" };
     const sourceConfig = (ref: typeof firstRef): OpenClawConfig => ({
       gateway: { reload: { debounceMs: 0 } },
       messages: { tts: { providers: { elevenlabs: { apiKey: ref } } } },
@@ -3772,6 +3773,74 @@ describe("gateway Gmail hot reload handlers", () => {
           config: nextSourceConfig,
         }),
       ).toBe("stale");
+
+      let releasePreparation = () => {};
+      let markPreparationStarted: (() => void) | undefined;
+      const preparationStarted = new Promise<void>((resolve) => {
+        markPreparationStarted = resolve;
+      });
+      const preparationGate = new Promise<void>((resolve) => {
+        releasePreparation = resolve;
+      });
+      activateRuntimeSecrets.mockImplementationOnce(async (config: OpenClawConfig) => {
+        markPreparationStarted?.();
+        await preparationGate;
+        return {
+          sourceConfig: config,
+          config: runtimeConfig,
+          authStores: [],
+          authStoreCredentialsRevision: getRuntimeAuthProfileStoreCredentialsRevision(),
+          warnings: [],
+          secretOwners: [
+            {
+              ownerKind: "capability" as const,
+              ownerId: "tts",
+              refKeys: ["env:default:TTS_SECOND"],
+            },
+          ],
+          webTools: createEmptyRuntimeWebToolsMetadata(),
+        };
+      });
+      listener({
+        configPath: "/tmp/openclaw.json",
+        sourceConfig: nextSourceConfig,
+        runtimeConfig,
+        persistedHash: "superseded-source-owner",
+        revision: 2,
+        fingerprint: "same-runtime",
+        sourceFingerprint: "superseded-source-owner",
+        writtenAtMs: Date.now(),
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      await preparationStarted;
+
+      const concurrentSourceConfig = sourceConfig(thirdRef);
+      activateSecretsRuntimeSnapshot({
+        sourceConfig: concurrentSourceConfig,
+        config: runtimeConfig,
+        authStores: [],
+        authStoreCredentialsRevision: getRuntimeAuthProfileStoreCredentialsRevision(),
+        warnings: [],
+        secretOwners: [
+          {
+            ownerKind: "capability",
+            ownerId: "tts",
+            refKeys: ["env:default:TTS_THIRD"],
+          },
+        ],
+        webTools: createEmptyRuntimeWebToolsMetadata(),
+      });
+      releasePreparation();
+      await vi.runAllTimersAsync();
+
+      expect(getActiveSecretsRuntimeSnapshot()?.sourceConfig).toEqual(concurrentSourceConfig);
+      expect(getActiveSecretsRuntimeSnapshot()?.secretOwners).toEqual([
+        {
+          ownerKind: "capability",
+          ownerId: "tts",
+          refKeys: ["env:default:TTS_THIRD"],
+        },
+      ]);
     } finally {
       await reloader.stop();
     }

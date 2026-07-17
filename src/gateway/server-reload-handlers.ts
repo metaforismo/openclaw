@@ -1891,23 +1891,22 @@ export function startManagedGatewayConfigReloader(
       if (!transactionOwnership.isCurrent()) {
         throw new GatewayConfigReloadSupersededError();
       }
-      if (
-        !metadata ||
-        !previousRuntimeSourceConfig ||
-        !setSecretsRuntimeSourceSnapshotIfCurrent({
-          expectedSecretsRevision: previousSecretsRevision,
-          expectedRuntimeConfigRevision: metadata.revision,
-          runtimeSourceConfig: sourceConfig,
-          secretsSourceConfig: preparedSecrets.sourceConfig,
-          secretOwners: preparedSecrets.secretOwners,
-        }) ||
-        !transactionOwnership.isCurrent()
-      ) {
+      if (!metadata || !previousRuntimeSourceConfig) {
+        throw new GatewayConfigReloadSupersededError();
+      }
+      const sourceSnapshotPublished = setSecretsRuntimeSourceSnapshotIfCurrent({
+        expectedSecretsRevision: previousSecretsRevision,
+        expectedRuntimeConfigRevision: metadata.revision,
+        runtimeSourceConfig: sourceConfig,
+        secretsSourceConfig: preparedSecrets.sourceConfig,
+        secretOwners: preparedSecrets.secretOwners,
+      });
+      if (!sourceSnapshotPublished) {
         throw new GatewayConfigReloadSupersededError();
       }
       const committedMetadata = getRuntimeConfigSnapshotMetadata();
       const committedSecretsRevision = getActiveSecretsRuntimeSnapshotRevision();
-      return async () => {
+      const rollbackPublishedSource = async () => {
         if (
           !committedMetadata ||
           !setSecretsRuntimeSourceSnapshotIfCurrent({
@@ -1921,6 +1920,11 @@ export function startManagedGatewayConfigReloader(
           throw new GatewayConfigReloadSupersededError();
         }
       };
+      if (!transactionOwnership.isCurrent()) {
+        await rollbackPublishedSource();
+        throw new GatewayConfigReloadSupersededError();
+      }
+      return rollbackPublishedSource;
     },
     onNoopConfigCommit: async (plan, nextConfig, transactionOwnership, sourceConfig) => {
       for (;;) {
