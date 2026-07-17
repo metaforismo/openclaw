@@ -13,6 +13,7 @@ import {
 } from "../agents/auth-profiles/runtime-snapshots.js";
 import type { ConfigFileSnapshot, OpenClawConfig } from "../config/types.js";
 import { measureDiagnosticsTimelineSpan } from "../infra/diagnostics-timeline.js";
+import { refResolutionError } from "../secrets/resolve-errors.js";
 import { associateSecretResolutionErrorOwners } from "../secrets/runtime-degraded-state.js";
 import {
   activateSecretsRuntimeSnapshotState,
@@ -776,6 +777,54 @@ describe("gateway startup config secret preflight", () => {
       expect(emitStateEvent).not.toHaveBeenCalled();
     },
   );
+
+  it("publishes a redacted unknown-owner warning for an unmapped typed reload failure", async () => {
+    activateSecretsRuntimeSnapshotForTest(preparedSnapshot(gatewayTokenConfig({})));
+    const missingSecretError = refResolutionError({
+      code: "SECRET_REF_NOT_FOUND",
+      source: "env",
+      provider: "default",
+      refId: "PRIVATE_UNMAPPED_REF",
+      message: 'Environment variable "PRIVATE_UNMAPPED_REF" is missing or empty.',
+    });
+    const prepareRuntimeSecretsSnapshot = vi.fn(async () => {
+      throw missingSecretError;
+    });
+    const emitStateEvent = vi.fn();
+    const logSecrets = mockLogSecretsForTest();
+    const activateRuntimeSecrets = runtimeSecretsActivatorForTest({
+      prepareRuntimeSecretsSnapshot,
+      emitStateEvent,
+      logSecrets,
+    });
+
+    await expect(
+      activateRuntimeSecrets(gatewayTokenConfig({}), {
+        reason: "reload",
+        activate: false,
+        publishFailureAsDegraded: true,
+      }),
+    ).rejects.toThrow(missingSecretError.message);
+
+    expect(logSecrets.warn).toHaveBeenCalledWith(
+      "[SECRETS_DEGRADED] stale unknown:unmapped: secret reference was not found. " +
+        "Retry: openclaw secrets reload.",
+      {
+        event: "secrets.degraded",
+        ownerKind: "unknown",
+        ownerId: "unmapped",
+        reason: "secret reference was not found",
+        state: "stale",
+        retryHint: "openclaw secrets reload",
+      },
+    );
+    expect(JSON.stringify(logSecrets.warn.mock.calls)).not.toContain("PRIVATE_UNMAPPED_REF");
+    expect(emitStateEvent).toHaveBeenCalledWith(
+      "SECRETS_RELOADER_DEGRADED",
+      "Secret resolution failed; runtime remains on the last-known-good snapshot.",
+      expect.anything(),
+    );
+  });
 
   it("does not publish a rejected candidate-only preflight as active degradation", async () => {
     let shouldFail = true;

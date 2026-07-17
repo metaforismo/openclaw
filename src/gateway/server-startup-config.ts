@@ -25,6 +25,10 @@ import {
   SECRET_DEGRADATION_RETRY_HINT,
   type SecretDegradation,
 } from "../secrets/runtime-degraded-state.js";
+import {
+  describeSecretResolutionError,
+  isSecretResolutionError,
+} from "../secrets/resolve-errors.js";
 import { prepareSecretsRuntimeFastPathSnapshot } from "../secrets/runtime-fast-path.js";
 import {
   GATEWAY_AUTH_SURFACE_PATHS,
@@ -122,7 +126,7 @@ function logSecretDegradation(log: GatewayStartupLog, degradation: SecretDegrada
 }
 
 function classifySecretResolutionErrorDegradations(error: unknown): SecretDegradation[] {
-  return listSecretResolutionErrorOwners(error).flatMap((owner) =>
+  const degradations = listSecretResolutionErrorOwners(error).flatMap((owner) =>
     owner.failureMatched
       ? [
           {
@@ -135,6 +139,18 @@ function classifySecretResolutionErrorDegradations(error: unknown): SecretDegrad
         ]
       : [],
   );
+  if (degradations.length > 0 || !isSecretResolutionError(error)) {
+    return degradations;
+  }
+  return [
+    {
+      kind: "unknown",
+      id: "unmapped",
+      reason: describeSecretResolutionError(error) ?? "secret resolution failed",
+      state: "stale",
+      retryHint: SECRET_DEGRADATION_RETRY_HINT,
+    },
+  ];
 }
 
 /** Config snapshot plus optional plugin metadata loaded before Gateway startup auth. */
