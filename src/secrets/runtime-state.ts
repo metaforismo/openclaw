@@ -144,7 +144,8 @@ function cloneSnapshot(snapshot: PreparedSecretsRuntimeSnapshot): PreparedSecret
       reason: owner.reason,
     })),
     secretOwners: (snapshot.secretOwners ?? []).map((owner) => ({
-      ...owner,
+      ownerKind: owner.ownerKind,
+      ownerId: owner.ownerId,
       refKeys: [...owner.refKeys],
     })),
     webTools: structuredClone(snapshot.webTools),
