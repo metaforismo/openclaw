@@ -479,6 +479,20 @@ function selectProviderAuthConfig(config: OpenClawConfig): OpenClawConfig {
   };
 }
 
+function mergeProviderAuthSecretOwners(
+  active: PreparedSecretsRuntimeSnapshot["secretOwners"],
+  candidate: PreparedSecretsRuntimeSnapshot["secretOwners"],
+): PreparedSecretsRuntimeSnapshot["secretOwners"] {
+  const isProviderAuthOwner = (owner: NonNullable<typeof active>[number]) =>
+    owner.ownerKind === "provider" || owner.ownerKind === "account";
+  // This refresh publishes provider and account state only. Keep transport-owned refs pinned
+  // to their active snapshot so later failures compare against the values actually in use.
+  return [
+    ...(active ?? []).filter((owner) => !isProviderAuthOwner(owner)),
+    ...(candidate ?? []).filter(isProviderAuthOwner),
+  ];
+}
+
 function createSecretsRuntimeSnapshotActivation(snapshot: PreparedSecretsRuntimeSnapshot) {
   const refreshContext =
     getPreparedSecretsRuntimeSnapshotRefreshContext(snapshot) ??
@@ -536,6 +550,10 @@ export async function refreshActiveProviderAuthRuntimeSnapshot(): Promise<boolea
       config,
       authStores: candidate.snapshot.authStores,
       authStoreCredentialsRevision: candidate.snapshot.authStoreCredentialsRevision,
+      secretOwners: mergeProviderAuthSecretOwners(
+        activeSnapshot.secretOwners,
+        candidate.snapshot.secretOwners,
+      ),
     };
     // The pinned config read and revision claim are synchronous: preserve gateway-owned
     // runtime mutations while preventing a concurrently prepared secrets snapshot from winning.
