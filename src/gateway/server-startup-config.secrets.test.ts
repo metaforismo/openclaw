@@ -730,6 +730,7 @@ describe("gateway startup config secret preflight", () => {
         retryHint: "openclaw secrets reload",
       },
     );
+    expect(JSON.stringify(logSecrets.warn.mock.calls)).not.toContain("ELEVENLABS_API_KEY");
     expect(emitStateEvent).not.toHaveBeenCalled();
   });
 
