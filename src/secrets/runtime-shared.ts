@@ -38,28 +38,31 @@ export type SecretAssignment = {
   apply: (value: unknown) => void;
 };
 
-type SecretAssignmentValidationFailure = Pick<SecretAssignment, "ownerKind" | "ownerId">;
+type SecretAssignmentValidationFailure = Pick<
+  SecretAssignment,
+  "ownerKind" | "ownerId" | "expected"
+> & {
+  refKey: string;
+};
 
 class SecretAssignmentValidationError extends Error {
-  readonly ownerKind: SecretOwnerKind;
-  readonly ownerId: string;
+  readonly failures: SecretAssignmentValidationFailure[];
 
-  constructor(params: SecretAssignmentValidationFailure & { error: Error }) {
+  constructor(params: { failures: SecretAssignmentValidationFailure[]; error: Error }) {
     super(params.error.message, { cause: params.error });
     this.name = "SecretAssignmentValidationError";
-    this.ownerKind = params.ownerKind;
-    this.ownerId = params.ownerId;
+    this.failures = params.failures.map((failure) => ({ ...failure }));
   }
 }
 
-/** Returns the owner whose resolved value failed its target shape contract. */
-export function getSecretAssignmentValidationFailure(
+/** Returns every assignment whose resolved value failed its target shape contract. */
+export function getSecretAssignmentValidationFailures(
   error: unknown,
-): SecretAssignmentValidationFailure | undefined {
+): SecretAssignmentValidationFailure[] {
   if (!(error instanceof SecretAssignmentValidationError)) {
-    return undefined;
+    return [];
   }
-  return { ownerKind: error.ownerKind, ownerId: error.ownerId };
+  return error.failures.map((failure) => ({ ...failure }));
 }
 
 export type SecretAssignmentOwner = Pick<
@@ -196,6 +199,8 @@ export function applyResolvedAssignments(params: {
   resolved: Map<string, unknown>;
 }): void {
   const values: unknown[] = [];
+  const failures: SecretAssignmentValidationFailure[] = [];
+  let firstValidationError: Error | undefined;
   for (const assignment of params.assignments) {
     const key = secretRefKey(assignment.ref);
     if (!params.resolved.has(key)) {
@@ -212,13 +217,19 @@ export function applyResolvedAssignments(params: {
             : `${assignment.path} resolved to an unsupported value type.`,
       });
     } catch (error) {
-      throw new SecretAssignmentValidationError({
-        error: error instanceof Error ? error : new Error(String(error)),
+      const validationError = error instanceof Error ? error : new Error(String(error));
+      firstValidationError ??= validationError;
+      failures.push({
         ownerKind: assignment.ownerKind,
         ownerId: assignment.ownerId,
+        expected: assignment.expected,
+        refKey: key,
       });
     }
     values.push(value);
+  }
+  if (firstValidationError) {
+    throw new SecretAssignmentValidationError({ error: firstValidationError, failures });
   }
   for (const [index, assignment] of params.assignments.entries()) {
     assignment.apply(values[index]);

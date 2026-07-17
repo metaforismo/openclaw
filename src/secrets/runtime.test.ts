@@ -810,6 +810,56 @@ describe("secrets runtime snapshot", () => {
     expect((await fs.readFile(callLogPath, "utf8")).trim().split("\n")).toHaveLength(1);
   });
 
+  it("attributes provider failures by source and provider before matching ref ids", async () => {
+    if (process.platform === "win32") {
+      return;
+    }
+    const root = tempDirs.make("openclaw-secret-provider-owner-match-");
+    const healthyPath = path.join(root, "healthy.json");
+    await fs.writeFile(healthyPath, JSON.stringify({ shared: "healthy" }), "utf8");
+    await fs.chmod(healthyPath, 0o600);
+    const sharedId = "/shared";
+    const error = await prepareSecretsRuntimeSnapshot({
+      config: asConfig({
+        secrets: {
+          providers: {
+            missing: {
+              source: "file",
+              path: path.join(root, "missing.json"),
+              mode: "json",
+            },
+            healthy: { source: "file", path: healthyPath, mode: "json" },
+          },
+        },
+        models: {
+          providers: {
+            example: {
+              apiKey: { source: "file", provider: "missing", id: sharedId },
+              baseUrl: "https://example.invalid/v1",
+              models: [],
+            },
+          },
+        },
+        messages: {
+          tts: {
+            providers: {
+              elevenlabs: {
+                apiKey: { source: "file", provider: "healthy", id: sharedId },
+              },
+            },
+          },
+        },
+      }),
+      includeAuthStoreRefs: false,
+      loadablePluginOrigins: EMPTY_LOADABLE_PLUGIN_ORIGINS,
+    }).catch((failure: unknown) => failure);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(listSecretResolutionErrorOwners(error)).toEqual([
+      expect.objectContaining({ ownerKind: "provider", ownerId: "example" }),
+    ]);
+  });
+
   it("keeps invalid TTS SecretRef ids fail-closed", async () => {
     await expect(
       prepareSecretsRuntimeSnapshot({
@@ -958,6 +1008,58 @@ describe("secrets runtime snapshot", () => {
         failureMatched: true,
       }),
     ]);
+  });
+
+  it("reports every owner sharing an invalid resolved value", async () => {
+    if (process.platform === "win32") {
+      return;
+    }
+    const root = tempDirs.make("openclaw-shared-invalid-secretref-");
+    const secretsPath = path.join(root, "secrets.json");
+    await fs.writeFile(secretsPath, JSON.stringify({ shared: { invalid: true } }), "utf8");
+    await fs.chmod(secretsPath, 0o600);
+    const sharedRef = { source: "file" as const, provider: "shared", id: "/shared" };
+    const error = await prepareSecretsRuntimeSnapshot({
+      config: asConfig({
+        secrets: {
+          providers: {
+            shared: { source: "file", path: secretsPath, mode: "json" },
+          },
+        },
+        models: {
+          providers: {
+            example: {
+              apiKey: sharedRef,
+              baseUrl: "https://example.invalid/v1",
+              models: [],
+            },
+          },
+        },
+        messages: {
+          tts: { providers: { elevenlabs: { apiKey: sharedRef } } },
+        },
+      }),
+      includeAuthStoreRefs: false,
+      loadablePluginOrigins: EMPTY_LOADABLE_PLUGIN_ORIGINS,
+    }).catch((failure: unknown) => failure);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(listSecretResolutionErrorOwners(error)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          ownerKind: "provider",
+          ownerId: "example",
+          reason: "resolved secret value was invalid",
+          failureMatched: true,
+        }),
+        expect.objectContaining({
+          ownerKind: "capability",
+          ownerId: "tts",
+          reason: "resolved secret value was invalid",
+          failureMatched: true,
+        }),
+      ]),
+    );
   });
 
   it("still fails required gateway auth SecretRefs when env is missing", async () => {

@@ -136,10 +136,23 @@ describe("secrets runtime snapshot auth refresh failure", () => {
         loadablePluginOrigins: EMPTY_LOADABLE_PLUGIN_ORIGINS,
         loadAuthStore,
       });
+      prepared.secretOwners = [
+        ...(prepared.secretOwners ?? []),
+        {
+          ownerKind: "account",
+          ownerId: "discord:ops",
+          refKeys: ["env:default:DISCORD_BOT_TOKEN"],
+        },
+      ];
       activateSecretsRuntimeSnapshot(prepared);
 
       activeRef = secondRef;
       await expect(refreshActiveProviderAuthRuntimeSnapshot()).resolves.toBe(true);
+      expect(expectActiveSecretsRuntimeSnapshot().secretOwners).toContainEqual({
+        ownerKind: "account",
+        ownerId: "discord:ops",
+        refKeys: ["env:default:DISCORD_BOT_TOKEN"],
+      });
       await writeSecrets(false);
 
       const error = await refreshActiveProviderAuthRuntimeSnapshot().catch((cause) => cause);

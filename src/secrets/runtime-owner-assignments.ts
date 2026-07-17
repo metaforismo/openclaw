@@ -19,7 +19,7 @@ import type {
 import { associateSecretResolutionErrorOwners } from "./runtime-degraded-state.js";
 import {
   applyResolvedAssignments,
-  getSecretAssignmentValidationFailure,
+  getSecretAssignmentValidationFailures,
   pushWarning,
   type ResolverContext,
   type SecretAssignment,
@@ -156,19 +156,22 @@ async function resolveStrictAssignments(params: {
     registerResolvedValuesForRedaction(resolved);
     applyResolvedAssignments({ assignments: params.assignments, resolved });
   } catch (error) {
-    const validationFailure = getSecretAssignmentValidationFailure(error);
-    const reason = validationFailure
-      ? "resolved secret value was invalid"
-      : describeSecretResolutionError(error);
+    const validationFailures = getSecretAssignmentValidationFailures(error);
+    const validationFailureOwnerKeys = new Set(
+      validationFailures.map((failure) => `${failure.ownerKind}\0${failure.ownerId}`),
+    );
+    const reason =
+      validationFailures.length > 0
+        ? "resolved secret value was invalid"
+        : describeSecretResolutionError(error);
     if (reason) {
       const owners = groupAssignmentsByOwner(params.assignments).flatMap((assignments) => {
         if (assignments[0]?.ownerKind === "unknown") {
           return [];
         }
         const failureMatched = assignments.some((assignment) =>
-          validationFailure
-            ? assignment.ownerKind === validationFailure.ownerKind &&
-              assignment.ownerId === validationFailure.ownerId
+          validationFailures.length > 0
+            ? validationFailureOwnerKeys.has(assignmentOwnerKey(assignment))
             : assignmentMatchesResolutionFailure(assignment, error),
         );
         if (!failureMatched) {
@@ -198,6 +201,8 @@ function assignmentMatchesResolutionFailure(assignment: SecretAssignment, error:
   if (!isSecretResolutionError(error)) {
     return false;
   }
+  // Provider failures affect every ref under that exact source/provider pair. Ref failures
+  // additionally require the id, so equal ids under sibling providers never share attribution.
   if (assignment.ref.source !== error.source || assignment.ref.provider !== error.provider) {
     return false;
   }

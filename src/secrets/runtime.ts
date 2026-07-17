@@ -20,6 +20,7 @@ import type { PluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot
 import type { PluginOrigin } from "../plugins/plugin-origin.types.js";
 import { createLazyRuntimeModule } from "../shared/lazy-runtime.js";
 import { isRecord, resolveUserPath } from "../utils.js";
+import { resolveAuthProfileSecretOwnerId } from "./runtime-auth-profile-owner.js";
 import {
   canUseSecretsRuntimeFastPath,
   collectCandidateAgentDirs,
@@ -479,17 +480,34 @@ function selectProviderAuthConfig(config: OpenClawConfig): OpenClawConfig {
   };
 }
 
+function listAuthProfileSecretOwnerIds(
+  authStores: PreparedSecretsRuntimeSnapshot["authStores"],
+): Set<string> {
+  return new Set(
+    authStores.flatMap(({ agentDir, store }) =>
+      Object.keys(store.profiles).map((profileId) =>
+        resolveAuthProfileSecretOwnerId({ agentDir, profileId }),
+      ),
+    ),
+  );
+}
+
 function mergeProviderAuthSecretOwners(
-  active: PreparedSecretsRuntimeSnapshot["secretOwners"],
-  candidate: PreparedSecretsRuntimeSnapshot["secretOwners"],
+  active: PreparedSecretsRuntimeSnapshot,
+  candidate: PreparedSecretsRuntimeSnapshot,
 ): PreparedSecretsRuntimeSnapshot["secretOwners"] {
-  const isProviderAuthOwner = (owner: NonNullable<typeof active>[number]) =>
-    owner.ownerKind === "provider" || owner.ownerKind === "account";
+  const activeAuthProfileOwnerIds = listAuthProfileSecretOwnerIds(active.authStores);
+  const isActiveProviderAuthOwner = (owner: NonNullable<typeof active.secretOwners>[number]) =>
+    owner.ownerKind === "provider" ||
+    (owner.ownerKind === "account" && activeAuthProfileOwnerIds.has(owner.ownerId));
+  const isCandidateProviderAuthOwner = (
+    owner: NonNullable<typeof candidate.secretOwners>[number],
+  ) => owner.ownerKind === "provider" || owner.ownerKind === "account";
   // This refresh publishes provider and account state only. Keep transport-owned refs pinned
   // to their active snapshot so later failures compare against the values actually in use.
   return [
-    ...(active ?? []).filter((owner) => !isProviderAuthOwner(owner)),
-    ...(candidate ?? []).filter(isProviderAuthOwner),
+    ...(active.secretOwners ?? []).filter((owner) => !isActiveProviderAuthOwner(owner)),
+    ...(candidate.secretOwners ?? []).filter(isCandidateProviderAuthOwner),
   ];
 }
 
@@ -550,10 +568,7 @@ export async function refreshActiveProviderAuthRuntimeSnapshot(): Promise<boolea
       config,
       authStores: candidate.snapshot.authStores,
       authStoreCredentialsRevision: candidate.snapshot.authStoreCredentialsRevision,
-      secretOwners: mergeProviderAuthSecretOwners(
-        activeSnapshot.secretOwners,
-        candidate.snapshot.secretOwners,
-      ),
+      secretOwners: mergeProviderAuthSecretOwners(activeSnapshot, candidate.snapshot),
     };
     // The pinned config read and revision claim are synchronous: preserve gateway-owned
     // runtime mutations while preventing a concurrently prepared secrets snapshot from winning.
