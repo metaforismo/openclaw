@@ -574,7 +574,7 @@ export async function getStatusSummary(
         ownerId,
         state,
         paths: ownerPaths,
-        reason: redactSecretDegradationReason(reason),
+        reason: String(redactSecretDegradationReason(reason)),
       }),
     ),
     tasks,
