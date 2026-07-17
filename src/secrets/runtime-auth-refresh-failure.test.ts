@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { withTempHome } from "../config/home-env.test-harness.js";
+import { resolveAuthProfileSecretOwnerId } from "./runtime-auth-profile-owner.js";
 import {
   beginSecretsRuntimeIsolationForTest,
   createOpenAIFileRuntimeConfig,
@@ -14,7 +15,6 @@ import {
   OPENAI_FILE_KEY_REF,
   type SecretsRuntimeEnvSnapshot,
 } from "./runtime-auth.integration.test-helpers.js";
-import { resolveAuthProfileSecretOwnerId } from "./runtime-auth-profile-owner.js";
 import { listSecretResolutionErrorOwners } from "./runtime-degraded-state.js";
 import {
   activateSecretsRuntimeSnapshot,
