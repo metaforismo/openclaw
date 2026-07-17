@@ -147,7 +147,7 @@ function classifySecretResolutionErrorDegradations(error: unknown): SecretDegrad
       kind: "unknown",
       id: "unmapped",
       reason: describeSecretResolutionError(error) ?? "secret resolution failed",
-      state: "stale",
+      state: "cold",
       retryHint: SECRET_DEGRADATION_RETRY_HINT,
     },
   ];

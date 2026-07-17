@@ -807,14 +807,14 @@ describe("gateway startup config secret preflight", () => {
     ).rejects.toThrow(missingSecretError.message);
 
     expect(logSecrets.warn).toHaveBeenCalledWith(
-      "[SECRETS_DEGRADED] stale unknown:unmapped: secret reference was not found. " +
+      "[SECRETS_DEGRADED] cold unknown:unmapped: secret reference was not found. " +
         "Retry: openclaw secrets reload.",
       {
         event: "secrets.degraded",
         ownerKind: "unknown",
         ownerId: "unmapped",
         reason: "secret reference was not found",
-        state: "stale",
+        state: "cold",
         retryHint: "openclaw secrets reload",
       },
     );
