@@ -23,7 +23,7 @@ import type { PluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot
 import { classifySecretResolutionErrorDegradations } from "../secrets/runtime-degradation-classifier.js";
 import {
   SECRET_DEGRADATION_RETRY_HINT,
-  setActiveReloadSecretDegradations,
+  type SecretDegradation,
 } from "../secrets/runtime-degraded-state.js";
 import { prepareSecretsRuntimeFastPathSnapshot } from "../secrets/runtime-fast-path.js";
 import {
@@ -52,9 +52,9 @@ import {
 } from "./startup-auth.js";
 
 type GatewayStartupLog = {
-  info: (message: string) => void;
-  warn: (message: string) => void;
-  error?: (message: string) => void;
+  info: (message: string, meta?: Record<string, unknown>) => void;
+  warn: (message: string, meta?: Record<string, unknown>) => void;
+  error?: (message: string, meta?: Record<string, unknown>) => void;
 };
 
 type GatewaySecretsStateEventCode = "SECRETS_RELOADER_DEGRADED" | "SECRETS_RELOADER_RECOVERED";
@@ -102,6 +102,21 @@ type GatewayStartupConfigMeasure = <T>(
   run: () => T | Promise<T>,
   options?: { omitErrorMessage?: boolean },
 ) => Promise<T>;
+
+function logSecretDegradation(log: GatewayStartupLog, degradation: SecretDegradation): void {
+  log.warn(
+    `[SECRETS_DEGRADED] ${degradation.state} ${degradation.kind}:${degradation.id}: ` +
+      `${degradation.reason}. Retry: ${degradation.retryHint}.`,
+    {
+      event: "secrets.degraded",
+      ownerKind: degradation.kind,
+      ownerId: degradation.id,
+      reason: degradation.reason,
+      state: degradation.state,
+      retryHint: degradation.retryHint,
+    },
+  );
+}
 
 /** Config snapshot plus optional plugin metadata loaded before Gateway startup auth. */
 export type GatewayStartupConfigSnapshotLoadResult = {
@@ -245,12 +260,16 @@ export function createRuntimeSecretsActivator(params: {
       activationParams.activate &&
       (prepared.degradedOwners?.length ?? 0) > 0
     ) {
-      const degradedOwners = prepared.degradedOwners ?? [];
-      params.logSecrets.warn(
-        `[SECRETS_DEGRADED_SUMMARY] ${degradedOwners.length} secret owner(s) cold: ` +
-          `${degradedOwners.map((owner) => `${owner.ownerKind}:${owner.ownerId}`).join(", ")}. ` +
-          `Retry: ${SECRET_DEGRADATION_RETRY_HINT}.`,
-      );
+      for (const owner of prepared.degradedOwners ?? []) {
+        logSecretDegradation(params.logSecrets, {
+          kind: owner.ownerKind,
+          id: owner.ownerId,
+          reason: owner.reason,
+          state: "cold",
+          retryHint: SECRET_DEGRADATION_RETRY_HINT,
+          paths: [...owner.paths],
+        });
+      }
     }
     if (activationParams.activate && secretsDegraded) {
       const recoveredMessage =
@@ -272,21 +291,17 @@ export function createRuntimeSecretsActivator(params: {
       activationParams.reason !== "startup" &&
       (activationParams.activate || activationParams.publishFailureAsDegraded === true);
     if (publishDegradation) {
-      setActiveReloadSecretDegradations(classifySecretResolutionErrorDegradations({ error: err }));
-    }
-    if (!secretsDegraded) {
-      params.logSecrets.error?.(`[SECRETS_RELOADER_DEGRADED] ${details}`);
-      if (publishDegradation) {
+      const degradations = classifySecretResolutionErrorDegradations({ error: err });
+      for (const degradation of degradations) {
+        logSecretDegradation(params.logSecrets, degradation);
+      }
+      if (!secretsDegraded) {
         params.emitStateEvent(
           "SECRETS_RELOADER_DEGRADED",
-          `Secret resolution failed; runtime remains on last-known-good snapshot. ${details}`,
+          "Secret resolution failed; runtime remains on the last-known-good snapshot.",
           eventConfig,
         );
       }
-    } else {
-      params.logSecrets.warn(`[SECRETS_RELOADER_DEGRADED] ${details}`);
-    }
-    if (publishDegradation) {
       secretsDegraded = true;
     }
     if (activationParams.reason === "startup") {

@@ -2,7 +2,6 @@
 // These shapes are consumed by scan, summary, text report, and JSON status builders.
 
 import type { FastMode } from "@openclaw/normalization-core/string-coerce";
-import type { SecretsStatus } from "../../packages/gateway-protocol/src/schema/secrets.js";
 import type { ChannelId } from "../channels/plugins/types.public.js";
 import type { SessionKind } from "../sessions/classify-session-kind.js";
 import type {
@@ -67,8 +66,6 @@ export type StatusSummary = {
   };
   channelSummary: string[];
   queuedSystemEvents: string[];
-  secrets?: SecretsStatus;
-  /** @deprecated Use `secrets.degraded`. */
   degradedSecretOwners?: Array<{
     ownerKind: "account" | "capability" | "gateway" | "provider" | "route";
     ownerId: string;

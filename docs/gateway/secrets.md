@@ -29,7 +29,7 @@ Plaintext credentials remain agent-readable if they sit in files the agent can i
 This keeps secret-provider outages off hot request paths.
 
 <Note>
-Target policy for the SecretRef ownership-isolation migration: failures isolate to the smallest known owner. Only unavailable Gateway ingress protection, structurally invalid config, or unknown ownership will block startup; other affected capabilities, accounts, or routes will become configured-unavailable with typed redacted diagnostics and no implicit credential fallback. Reload will retain last-known-good only for an unchanged ref and provider, while a changed unresolved ref will make that owner cold. Doctor and status will list every degraded owner. This migration is not fully implemented; the current activation rules on this page remain in effect.
+Target policy for the SecretRef ownership-isolation migration: failures isolate to the smallest known owner. Only unavailable Gateway ingress protection, structurally invalid config, or unknown ownership will block startup; other affected capabilities, accounts, or routes will become configured-unavailable with typed redacted diagnostics and no implicit credential fallback. Reload will retain last-known-good only for an unchanged ref and provider, while a changed unresolved ref will make that owner cold. Doctor and structured Gateway warnings will identify degraded owners. This migration is not fully implemented; the current activation rules on this page remain in effect.
 </Note>
 
 ## Egress-time injection (sentinels)
@@ -617,8 +617,8 @@ Behavior:
 - Recovered: emitted once after the next successful activation.
 - Repeated failures while already degraded log warnings but do not re-emit the event.
 - Startup fail-fast never emits a degraded event, because runtime never became active.
-- The `status` RPC and `openclaw status --json` expose every affected owner under `secrets.degraded[]`. `cold` means the owner has no active value; `stale` means a failed reload left that owner on its last-known-good value. Entries include a redacted reason, affected config paths, and the retry hint `openclaw secrets reload`.
-- `openclaw doctor` renders the same inventory and retry guidance. Gateway startup also emits one redacted summary warning after the per-owner warnings.
+- Startup and reload failures emit a structured `SECRETS_DEGRADED` warning for each affected owner. The warning includes the owner kind and id, a redacted reason, `cold` or `stale` state, and the `openclaw secrets reload` retry hint. It never includes resolved values or SecretRef ids.
+- `openclaw doctor` lists owners isolated during cold startup with their affected config paths, redacted reason, and retry guidance.
 
 ## Command-path resolution
 

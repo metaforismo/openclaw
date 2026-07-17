@@ -2,7 +2,7 @@ import { getPath } from "./path-utils.js";
 import {
   listSecretResolutionErrorOwners,
   SECRET_DEGRADATION_RETRY_HINT,
-  type SecretDegradationStatus,
+  type SecretDegradation,
 } from "./runtime-degraded-state.js";
 import { getActiveSecretsRuntimeSnapshot } from "./runtime-state.js";
 
@@ -16,10 +16,10 @@ function pathSegments(path: string): string[] {
 /** Returns every owner rolled back by one failed atomic reload attempt. */
 export function classifySecretResolutionErrorDegradations(params: {
   error: unknown;
-}): SecretDegradationStatus[] {
+}): SecretDegradation[] {
   const attempts = listSecretResolutionErrorOwners(params.error);
   const active = getActiveSecretsRuntimeSnapshot();
-  const genericRuntimeDegradation = (): SecretDegradationStatus => ({
+  const genericRuntimeDegradation = (): SecretDegradation => ({
     kind: "unknown",
     id: "runtime",
     reason: "secret reload failed",
@@ -34,7 +34,7 @@ export function classifySecretResolutionErrorDegradations(params: {
   const activeColdOwners = new Set(
     (active?.degradedOwners ?? []).map((owner) => `${owner.ownerKind}\0${owner.ownerId}`),
   );
-  const classified = attempts.map<SecretDegradationStatus>((owner) => {
+  const classified = attempts.map<SecretDegradation>((owner) => {
     const hasActiveValue = owner.paths.some(
       (path) => active && getPath(active.config, pathSegments(path)) !== undefined,
     );

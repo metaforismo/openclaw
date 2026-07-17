@@ -17,10 +17,7 @@ import { listGatewayAgentsBasic } from "../gateway/agent-list.js";
 import { resolveHeartbeatSummaryForAgent } from "../infra/heartbeat-summary.js";
 import { peekSystemEvents } from "../infra/system-events.js";
 import { parseAgentSessionKey } from "../routing/session-key.js";
-import {
-  listActiveDegradedSecretOwners,
-  listActiveSecretDegradations,
-} from "../secrets/runtime-degraded-state.js";
+import { listActiveDegradedSecretOwners } from "../secrets/runtime-degraded-state.js";
 import { createLazyImportLoader } from "../shared/lazy-promise.js";
 import { createLazyRuntimeSurface } from "../shared/lazy-runtime.js";
 import {
@@ -551,7 +548,6 @@ export async function getStatusSummary(
     selectRecentSessionCandidates(allSessions, RECENT_SESSION_LIMIT),
   );
   const totalSessions = allSessions.length;
-  const degradedSecretOwners = listActiveDegradedSecretOwners();
 
   const summary: StatusSummary = {
     runtimeVersion: resolveRuntimeServiceVersion(process.env),
@@ -569,10 +565,7 @@ export async function getStatusSummary(
     },
     channelSummary,
     queuedSystemEvents,
-    secrets: {
-      degraded: listActiveSecretDegradations(),
-    },
-    degradedSecretOwners: degradedSecretOwners.map(
+    degradedSecretOwners: listActiveDegradedSecretOwners().map(
       ({ ownerKind, ownerId, state, paths: ownerPaths, reason }) => ({
         ownerKind,
         ownerId,

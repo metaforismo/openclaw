@@ -26,8 +26,8 @@ type SecretResolutionErrorOwner = DegradedSecretOwner & {
 
 export const SECRET_DEGRADATION_RETRY_HINT = "openclaw secrets reload" as const;
 
-/** Secret degradation projected for operator status without exposing ref identifiers. */
-export type SecretDegradationStatus = {
+/** Redacted owner details for one structured degradation warning. */
+export type SecretDegradation = {
   kind: SecretOwnerKind;
   id: string;
   reason: string;
@@ -57,7 +57,6 @@ export class SecretSurfaceUnavailableError extends Error {
 }
 
 let activeDegradedOwners: DegradedSecretOwner[] = [];
-let activeReloadDegradations: SecretDegradationStatus[] = [];
 const resolutionErrorOwners = new WeakMap<object, SecretResolutionErrorOwner[]>();
 
 function cloneOwner(owner: DegradedSecretOwner): DegradedSecretOwner {
@@ -75,9 +74,6 @@ function cloneResolutionErrorOwner(owner: SecretResolutionErrorOwner): SecretRes
 /** Publishes the degraded-owner snapshot at the same edge as runtime config activation. */
 export function setActiveDegradedSecretOwners(owners: readonly DegradedSecretOwner[]): void {
   activeDegradedOwners = owners.map(cloneOwner);
-  // Any successful activation replaces the last-known-good outage with the
-  // new snapshot, while its own unresolved owners remain cold below.
-  activeReloadDegradations = [];
 }
 
 /** Returns the active degraded-owner snapshot without exposing mutable registry state. */
@@ -102,43 +98,6 @@ export function listSecretResolutionErrorOwners(error: unknown): SecretResolutio
     return [];
   }
   return (resolutionErrorOwners.get(error) ?? []).map(cloneResolutionErrorOwner);
-}
-
-/** Publishes owner states derived from one failed atomic runtime reload. */
-export function setActiveReloadSecretDegradations(
-  degradations: readonly SecretDegradationStatus[],
-): void {
-  activeReloadDegradations = degradations.map(cloneSecretDegradation);
-}
-
-function cloneSecretDegradation(entry: SecretDegradationStatus): SecretDegradationStatus {
-  return {
-    kind: entry.kind,
-    id: entry.id,
-    reason: entry.reason,
-    state: entry.state,
-    retryHint: entry.retryHint,
-    paths: [...entry.paths],
-  };
-}
-
-/** Lists active cold owners plus non-overlapping degradation from the last failed reload. */
-export function listActiveSecretDegradations(): SecretDegradationStatus[] {
-  const cold = activeDegradedOwners.map((owner) => ({
-    kind: owner.ownerKind,
-    id: owner.ownerId,
-    reason: owner.reason,
-    state: "cold" as const,
-    retryHint: SECRET_DEGRADATION_RETRY_HINT,
-    paths: [...owner.paths],
-  }));
-  const coldKeys = new Set(cold.map((owner) => `${owner.kind}\0${owner.id}`));
-  return [
-    ...cold,
-    ...activeReloadDegradations
-      .filter((owner) => !coldKeys.has(`${owner.kind}\0${owner.id}`))
-      .map(cloneSecretDegradation),
-  ];
 }
 
 /** Returns one active degraded owner, if present. */
