@@ -24,7 +24,7 @@ export type DegradedSecretOwner = {
   state: "unavailable";
   paths: string[];
   refKeys: string[];
-  reason: SecretDegradationReason;
+  reason: string;
 };
 
 /** SecretRef identities resolved for one owner in an active runtime snapshot. */
@@ -42,10 +42,27 @@ export const SECRET_DEGRADATION_RETRY_HINT = "openclaw secrets reload" as const;
 export type SecretDegradation = {
   kind: SecretOwnerKind;
   id: string;
-  reason: SecretDegradationReason;
+  reason: string;
   state: "cold" | "stale";
   retryHint: typeof SECRET_DEGRADATION_RETRY_HINT;
 };
+
+/** Preserves known failure classes while dropping any embedded SecretRef identity. */
+export function redactSecretDegradationReason(reason: string): SecretDegradationReason {
+  switch (reason) {
+    case "secret provider failed":
+    case "secret provider policy denied resolution":
+    case "secret provider response violated its contract":
+    case "secret reference is not allowed for this provider":
+    case "secret reference was not found":
+    case "secret reference was not materialized by the active runtime":
+    case "resolved secret value was invalid":
+    case "secret resolution failed":
+      return reason;
+    default:
+      return "secret resolution failed";
+  }
+}
 
 const SECRET_SURFACE_UNAVAILABLE_ERROR_CODE = "SECRET_SURFACE_UNAVAILABLE";
 

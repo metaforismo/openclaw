@@ -17,7 +17,10 @@ import { listGatewayAgentsBasic } from "../gateway/agent-list.js";
 import { resolveHeartbeatSummaryForAgent } from "../infra/heartbeat-summary.js";
 import { peekSystemEvents } from "../infra/system-events.js";
 import { parseAgentSessionKey } from "../routing/session-key.js";
-import { listActiveDegradedSecretOwners } from "../secrets/runtime-degraded-state.js";
+import {
+  listActiveDegradedSecretOwners,
+  redactSecretDegradationReason,
+} from "../secrets/runtime-degraded-state.js";
 import { createLazyImportLoader } from "../shared/lazy-promise.js";
 import { createLazyRuntimeSurface } from "../shared/lazy-runtime.js";
 import {
@@ -571,7 +574,7 @@ export async function getStatusSummary(
         ownerId,
         state,
         paths: ownerPaths,
-        reason,
+        reason: redactSecretDegradationReason(reason),
       }),
     ),
     tasks,

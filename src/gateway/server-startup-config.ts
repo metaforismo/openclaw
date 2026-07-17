@@ -26,6 +26,7 @@ import {
 } from "../secrets/resolve-errors.js";
 import {
   listSecretResolutionErrorOwners,
+  redactSecretDegradationReason,
   SECRET_DEGRADATION_RETRY_HINT,
   type SecretDegradation,
 } from "../secrets/runtime-degraded-state.js";
@@ -108,14 +109,15 @@ type GatewayStartupConfigMeasure = <T>(
 ) => Promise<T>;
 
 function logSecretDegradation(log: GatewayStartupLog, degradation: SecretDegradation): void {
+  const reason = redactSecretDegradationReason(degradation.reason);
   log.warn(
     `[SECRETS_DEGRADED] ${degradation.state} ${degradation.kind}:${degradation.id}: ` +
-      `${degradation.reason}. Retry: ${degradation.retryHint}.`,
+      `${reason}. Retry: ${degradation.retryHint}.`,
     {
       event: "secrets.degraded",
       ownerKind: degradation.kind,
       ownerId: degradation.id,
-      reason: degradation.reason,
+      reason,
       state: degradation.state,
       retryHint: degradation.retryHint,
     },
