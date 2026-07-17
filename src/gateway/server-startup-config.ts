@@ -122,27 +122,19 @@ function logSecretDegradation(log: GatewayStartupLog, degradation: SecretDegrada
 }
 
 function classifySecretResolutionErrorDegradations(error: unknown): SecretDegradation[] {
-  const owners = listSecretResolutionErrorOwners(error);
-  const degradations = owners.map<SecretDegradation>((owner) => ({
-    kind: owner.ownerKind,
-    id: owner.ownerId,
-    reason: owner.reason,
-    state: owner.degradationState,
-    retryHint: SECRET_DEGRADATION_RETRY_HINT,
-  }));
-  if (owners.some((owner) => owner.failureMatched)) {
-    return degradations;
-  }
-  return [
-    {
-      kind: "unknown",
-      id: "runtime",
-      reason: "secret reload failed",
-      state: getActiveSecretsRuntimeSnapshot() ? "stale" : "cold",
-      retryHint: SECRET_DEGRADATION_RETRY_HINT,
-    },
-    ...degradations,
-  ];
+  return listSecretResolutionErrorOwners(error).flatMap((owner) =>
+    owner.failureMatched
+      ? [
+          {
+            kind: owner.ownerKind,
+            id: owner.ownerId,
+            reason: owner.reason,
+            state: owner.degradationState,
+            retryHint: SECRET_DEGRADATION_RETRY_HINT,
+          },
+        ]
+      : [],
+  );
 }
 
 /** Config snapshot plus optional plugin metadata loaded before Gateway startup auth. */
@@ -318,17 +310,19 @@ export function createRuntimeSecretsActivator(params: {
       (activationParams.activate || activationParams.publishFailureAsDegraded === true);
     if (publishDegradation) {
       const degradations = classifySecretResolutionErrorDegradations(err);
-      for (const degradation of degradations) {
-        logSecretDegradation(params.logSecrets, degradation);
+      if (degradations.length > 0) {
+        for (const degradation of degradations) {
+          logSecretDegradation(params.logSecrets, degradation);
+        }
+        if (!secretsDegraded) {
+          params.emitStateEvent(
+            "SECRETS_RELOADER_DEGRADED",
+            "Secret resolution failed; runtime remains on the last-known-good snapshot.",
+            eventConfig,
+          );
+        }
+        secretsDegraded = true;
       }
-      if (!secretsDegraded) {
-        params.emitStateEvent(
-          "SECRETS_RELOADER_DEGRADED",
-          "Secret resolution failed; runtime remains on the last-known-good snapshot.",
-          eventConfig,
-        );
-      }
-      secretsDegraded = true;
     }
     if (activationParams.reason === "startup") {
       throw new Error(`Startup failed: required secrets are unavailable. ${details}`, {

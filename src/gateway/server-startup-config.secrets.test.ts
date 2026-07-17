@@ -738,7 +738,7 @@ describe("gateway startup config secret preflight", () => {
   });
 
   it.each(["reload", "restart-check"] as const)(
-    "keeps unavailable SecretRef owners fail-closed during %s",
+    "does not classify untyped %s errors as secret degradation",
     async (reason) => {
       activateSecretsRuntimeSnapshotForTest(preparedSnapshot(gatewayTokenConfig({})));
       const missingSecretError = new Error(
@@ -748,10 +748,12 @@ describe("gateway startup config secret preflight", () => {
         throw missingSecretError;
       });
       const activateRuntimeSecretsSnapshot = vi.fn();
+      const emitStateEvent = vi.fn();
       const logSecrets = mockLogSecretsForTest();
       const activateRuntimeSecrets = runtimeSecretsActivatorForTest({
         prepareRuntimeSecretsSnapshot,
         activateRuntimeSecretsSnapshot,
+        emitStateEvent,
         logSecrets,
       });
 
@@ -767,18 +769,11 @@ describe("gateway startup config secret preflight", () => {
         expect.objectContaining({ allowUnavailableSecretOwners: false }),
       );
       expect(activateRuntimeSecretsSnapshot).not.toHaveBeenCalled();
-      expect(logSecrets.warn).toHaveBeenCalledWith(
-        "[SECRETS_DEGRADED] stale unknown:runtime: secret reload failed. " +
-          "Retry: openclaw secrets reload.",
-        {
-          event: "secrets.degraded",
-          ownerKind: "unknown",
-          ownerId: "runtime",
-          reason: "secret reload failed",
-          state: "stale",
-          retryHint: "openclaw secrets reload",
-        },
+      expect(logSecrets.warn).not.toHaveBeenCalledWith(
+        expect.stringContaining("SECRETS_DEGRADED"),
+        expect.anything(),
       );
+      expect(emitStateEvent).not.toHaveBeenCalled();
     },
   );
 
