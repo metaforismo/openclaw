@@ -241,7 +241,7 @@ export async function resolveAndApplySecretAssignments(params: {
     );
     registerResolvedValuesForRedaction(resolution.resolved);
 
-    const failedOwners = new Map<SecretAssignment[], string>();
+    const failedOwners = new Map<SecretAssignment[], SecretDegradationReason>();
     for (const failure of resolution.failures) {
       const matchingOwners = pendingOwners.filter((assignments) =>
         assignments.some((assignment) =>

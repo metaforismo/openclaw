@@ -5,6 +5,7 @@ export type SecretDegradationReason =
   | SecretResolutionFailureReason
   | "resolved secret value was invalid"
   | "secret reference is not allowed for this provider"
+  | "secret reference was not materialized by the active runtime"
   | "secret resolution failed";
 
 export type SecretOwnerKind =
