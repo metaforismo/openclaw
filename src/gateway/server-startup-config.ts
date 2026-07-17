@@ -21,14 +21,14 @@ import { measureDiagnosticsTimelineSpan } from "../infra/diagnostics-timeline.js
 import type { PluginManifestRegistry } from "../plugins/manifest-registry.js";
 import type { PluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot.js";
 import {
+  describeSecretResolutionError,
+  isSecretResolutionError,
+} from "../secrets/resolve-errors.js";
+import {
   listSecretResolutionErrorOwners,
   SECRET_DEGRADATION_RETRY_HINT,
   type SecretDegradation,
 } from "../secrets/runtime-degraded-state.js";
-import {
-  describeSecretResolutionError,
-  isSecretResolutionError,
-} from "../secrets/resolve-errors.js";
 import { prepareSecretsRuntimeFastPathSnapshot } from "../secrets/runtime-fast-path.js";
 import {
   GATEWAY_AUTH_SURFACE_PATHS,
