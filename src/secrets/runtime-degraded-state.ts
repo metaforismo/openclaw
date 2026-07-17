@@ -71,7 +71,11 @@ function cloneOwner(owner: DegradedSecretOwner): DegradedSecretOwner {
 }
 
 function cloneResolutionErrorOwner(owner: SecretResolutionErrorOwner): SecretResolutionErrorOwner {
-  return { ...cloneOwner(owner), failureMatched: owner.failureMatched };
+  return {
+    ...cloneOwner(owner),
+    degradationState: owner.degradationState,
+    failureMatched: owner.failureMatched,
+  };
 }
 
 /** Publishes the degraded-owner snapshot at the same edge as runtime config activation. */

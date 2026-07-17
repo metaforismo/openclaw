@@ -291,7 +291,6 @@ export function createRuntimeSecretsActivator(params: {
           reason: owner.reason,
           state: "cold",
           retryHint: SECRET_DEGRADATION_RETRY_HINT,
-          paths: [...owner.paths],
         });
       }
     }
