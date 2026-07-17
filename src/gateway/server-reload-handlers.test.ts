@@ -3613,6 +3613,7 @@ describe("gateway Gmail hot reload handlers", () => {
       reason: "reload",
       activate: false,
       publishFailureAsDegraded: true,
+      canPublishFailureAsDegraded: expect.any(Function),
       includeAuthStoreRefs: undefined,
     });
     expect(getActiveSecretsRuntimeSnapshot()?.sourceConfig).toEqual(nextConfig);
@@ -4198,11 +4199,13 @@ describe("gateway Gmail hot reload handlers", () => {
         reason: "restart-check",
         activate: false,
         publishFailureAsDegraded: true,
+        canPublishFailureAsDegraded: expect.any(Function),
       });
       expect(harness.activateRuntimeSecrets).toHaveBeenNthCalledWith(2, harness.invalidConfig, {
         reason: "restart-check",
         activate: false,
         publishFailureAsDegraded: true,
+        canPublishFailureAsDegraded: expect.any(Function),
       });
       expect(harness.terminalPolicy.isEnabled()).toBe(false);
       expect(harness.promoteSnapshot.mock.calls.map(([snapshot]) => snapshot.hash)).not.toContain(
@@ -4227,12 +4230,14 @@ describe("gateway Gmail hot reload handlers", () => {
         reason: "reload",
         activate: false,
         publishFailureAsDegraded: true,
+        canPublishFailureAsDegraded: expect.any(Function),
         includeAuthStoreRefs: undefined,
       });
       expect(harness.activateRuntimeSecrets).toHaveBeenNthCalledWith(4, acceptedWithLogging, {
         reason: "restart-check",
         activate: false,
         publishFailureAsDegraded: true,
+        canPublishFailureAsDegraded: expect.any(Function),
       });
       const deferredPlan = buildGatewayReloadPlan(
         diffConfigPaths(harness.initialConfig, harness.deferredConfig),
@@ -4382,6 +4387,7 @@ describe("gateway Gmail hot reload handlers", () => {
           reason: "restart-check",
           activate: false,
           publishFailureAsDegraded: true,
+          canPublishFailureAsDegraded: expect.any(Function),
         },
       );
       expect(harness.requestRecoveryRestart).not.toHaveBeenCalled();
@@ -4487,6 +4493,7 @@ describe("gateway Gmail hot reload handlers", () => {
         reason: "restart-check",
         activate: false,
         publishFailureAsDegraded: true,
+        canPublishFailureAsDegraded: expect.any(Function),
       });
       await vi.advanceTimersByTimeAsync(500);
       expect(harness.requestRecoveryRestart.mock.calls).toEqual([
@@ -4535,6 +4542,7 @@ describe("gateway Gmail hot reload handlers", () => {
         reason: "restart-check",
         activate: false,
         publishFailureAsDegraded: true,
+        canPublishFailureAsDegraded: expect.any(Function),
       });
       expect(harness.requestRecoveryRestart).not.toHaveBeenCalled();
       expect(harness.promoteSnapshot.mock.calls.map(([snapshot]) => snapshot.hash)).not.toContain(
@@ -4570,6 +4578,7 @@ describe("gateway Gmail hot reload handlers", () => {
         reason: "restart-check",
         activate: false,
         publishFailureAsDegraded: true,
+        canPublishFailureAsDegraded: expect.any(Function),
       });
       expect(harness.requestRecoveryRestart).not.toHaveBeenCalled();
 
