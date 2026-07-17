@@ -393,6 +393,7 @@ import {
   SecretsResolveAssignmentSchema,
   SecretsResolveParamsSchema,
   SecretsResolveResultSchema,
+  SecretsStatusSchema,
 } from "./secrets.js";
 import { SessionPlacementProtocolSchemas } from "./session-placement.js";
 import {
@@ -648,6 +649,10 @@ export const ProtocolSchemas = {
   UiCommandParams: UiCommandParamsSchema,
   UiCommandResult: UiCommandResultSchema,
   SecretsReloadParams: SecretsReloadParamsSchema,
+  SecretsDegradedOwnerKind: SecretsDegradedOwnerKindSchema,
+  SecretsDegradationState: SecretsDegradationStateSchema,
+  SecretsDegradedOwner: SecretsDegradedOwnerSchema,
+  SecretsStatus: SecretsStatusSchema,
   SecretsResolveParams: SecretsResolveParamsSchema,
   SecretsResolveAssignment: SecretsResolveAssignmentSchema,
   SecretsResolveResult: SecretsResolveResultSchema,

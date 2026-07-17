@@ -357,6 +357,7 @@ import {
   SendParamsSchema,
   SecretsResolveParamsSchema,
   SecretsResolveResultSchema,
+  SecretsStatusSchema,
   SessionsAbortParamsSchema,
   SessionsCompactParamsSchema,
   SessionsCleanupParamsSchema,
@@ -671,6 +672,7 @@ export const validateWebPushUnsubscribeParams = lazyCompile<WebPushUnsubscribePa
 export const validateWebPushTestParams = lazyCompile<WebPushTestParams>(WebPushTestParamsSchema);
 export const validateSecretsResolveParams = lazyCompile(SecretsResolveParamsSchema);
 export const validateSecretsResolveResult = lazyCompile(SecretsResolveResultSchema);
+export const validateSecretsStatus = lazyCompile(SecretsStatusSchema);
 export const validateSessionsListParams = lazyCompile(SessionsListParamsSchema);
 export const validateSessionsCatalogListParams = lazyCompile(SessionsCatalogListParamsSchema);
 export const validateSessionsCatalogHostEvent = lazyCompile(SessionsCatalogHostEventSchema);
