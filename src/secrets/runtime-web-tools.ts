@@ -19,6 +19,7 @@ import { sortWebSearchProvidersForAutoDetect } from "../plugins/web-search-provi
 import { createLazyRuntimeSurface } from "../shared/lazy-runtime.js";
 import { normalizeSecretInput } from "../utils/normalize-secret-input.js";
 import { secretRefKey } from "./ref-contract.js";
+import { describeSecretResolutionError } from "./resolve-errors.js";
 import { resolveSecretRefValues } from "./resolve.js";
 import {
   associateSecretResolutionErrorOwners,
@@ -277,20 +278,6 @@ function readNonEmptyEnvValue(
   return {};
 }
 
-function buildUnresolvedReason(params: {
-  path: string;
-  kind: "unresolved" | "non-string" | "empty";
-  refLabel: string;
-}): string {
-  if (params.kind === "non-string") {
-    return `${params.path} SecretRef resolved to a non-string value.`;
-  }
-  if (params.kind === "empty") {
-    return `${params.path} SecretRef resolved to an empty value.`;
-  }
-  return `${params.path} SecretRef is unresolved (${params.refLabel}).`;
-}
-
 async function resolveSecretInputWithEnvFallback(params: {
   sourceConfig: OpenClawConfig;
   context: ResolverContext;
@@ -329,16 +316,15 @@ async function resolveSecretInputWithEnvFallback(params: {
     };
   }
 
-  const refLabel = `${ref.source}:${ref.provider}:${ref.id}`;
   let resolvedFromRef: string | undefined;
-  let unresolvedRefReason: string | undefined;
+  let unresolvedRefReason: SecretResolutionResult<SecretResolutionSource>["unresolvedRefReason"];
 
   if (
     params.restrictEnvRefsToEnvVars === true &&
     ref.source === "env" &&
     !params.envVars.includes(ref.id)
   ) {
-    unresolvedRefReason = `${params.path} SecretRef env var "${ref.id}" is not allowed.`;
+    unresolvedRefReason = "secret reference is not allowed for this provider";
   } else {
     try {
       const resolved = await resolveSecretRefValues([ref], {
@@ -349,27 +335,15 @@ async function resolveSecretInputWithEnvFallback(params: {
       });
       const resolvedValue = resolved.get(secretRefKey(ref));
       if (typeof resolvedValue !== "string") {
-        unresolvedRefReason = buildUnresolvedReason({
-          path: params.path,
-          kind: "non-string",
-          refLabel,
-        });
+        unresolvedRefReason = "resolved secret value was invalid";
       } else {
         resolvedFromRef = normalizeSecretInput(resolvedValue);
         if (!resolvedFromRef) {
-          unresolvedRefReason = buildUnresolvedReason({
-            path: params.path,
-            kind: "empty",
-            refLabel,
-          });
+          unresolvedRefReason = "resolved secret value was invalid";
         }
       }
-    } catch {
-      unresolvedRefReason = buildUnresolvedReason({
-        path: params.path,
-        kind: "unresolved",
-        refLabel,
-      });
+    } catch (error) {
+      unresolvedRefReason = describeSecretResolutionError(error) ?? "secret resolution failed";
     }
   }
 

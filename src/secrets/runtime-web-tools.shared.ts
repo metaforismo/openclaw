@@ -4,6 +4,7 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { resolveSecretInputRef, type SecretRef } from "../config/types.secrets.js";
 import { createLazyRuntimeNamedExport } from "../shared/lazy-runtime.js";
 import { setPathExistingStrict } from "./path-utils.js";
+import type { SecretDegradationReason } from "./runtime-degraded-state.js";
 import type {
   ResolverContext,
   SecretDefaults,
@@ -30,7 +31,7 @@ export type SecretResolutionResult<TSource extends string> = {
   secretRefConfigured: boolean;
   secretRef?: SecretRef;
   secretRefKey?: string;
-  unresolvedRefReason?: string;
+  unresolvedRefReason?: SecretDegradationReason;
   fallbackEnvVar?: string;
 };
 
@@ -39,12 +40,12 @@ export type RuntimeWebSecretOwner = {
   path: string;
   ref: SecretRef;
   refKey: string;
-  reason?: string;
+  reason?: SecretDegradationReason;
 };
 
 export type RuntimeWebProviderSelectionResult = {
   secretOwner?: RuntimeWebSecretOwner;
-  unavailableProvider?: RuntimeWebSecretOwner & { reason: string };
+  unavailableProvider?: RuntimeWebSecretOwner & { reason: SecretDegradationReason };
 };
 
 /** Carries typed web-provider ownership through strict reload failures. */
@@ -55,8 +56,8 @@ export class RuntimeWebProviderUnavailableError extends Error {
 
   constructor(
     code: RuntimeWebWarningCode,
-    reason: string,
-    unavailableProviders: Array<RuntimeWebSecretOwner & { reason: string }>,
+    reason: SecretDegradationReason,
+    unavailableProviders: Array<RuntimeWebSecretOwner & { reason: SecretDegradationReason }>,
   ) {
     super(`[${code}] ${reason}`);
     this.name = "RuntimeWebProviderUnavailableError";
@@ -440,7 +441,7 @@ export async function resolveRuntimeWebProviderSelection<
       path: string;
       ref?: SecretRef;
       refKey?: string;
-      reason: string;
+      reason: SecretDegradationReason;
     };
     const unresolvedWithoutFallback: UnresolvedProvider[] = [];
 
@@ -602,7 +603,10 @@ export async function resolveRuntimeWebProviderSelection<
       };
     }
 
-    const recordUnresolvedNoFallback = (unresolved: { path: string; reason: string }) => {
+    const recordUnresolvedNoFallback = (unresolved: {
+      path: string;
+      reason: SecretDegradationReason;
+    }) => {
       const diagnostic: RuntimeWebDiagnostic = {
         code: params.noFallbackCode,
         message: unresolved.reason,

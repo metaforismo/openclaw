@@ -11,7 +11,11 @@ import {
   isSecretResolutionError,
 } from "./resolve-errors.js";
 import { resolveSecretRefValues, resolveSecretRefValuesSettledByProvider } from "./resolve.js";
-import type { DegradedSecretOwner, SecretOwnerRefState } from "./runtime-degraded-state.js";
+import type {
+  DegradedSecretOwner,
+  SecretDegradationReason,
+  SecretOwnerRefState,
+} from "./runtime-degraded-state.js";
 import { associateSecretResolutionErrorOwners } from "./runtime-degraded-state.js";
 import {
   applyResolvedAssignments,
@@ -108,7 +112,10 @@ export function listSecretAssignmentOwners(assignments: SecretAssignment[]): Sec
   });
 }
 
-function createDegradedOwner(assignments: SecretAssignment[], reason: string): DegradedSecretOwner {
+function createDegradedOwner(
+  assignments: SecretAssignment[],
+  reason: SecretDegradationReason,
+): DegradedSecretOwner {
   const owner = assignments[0]!;
   if (owner.ownerKind === "unknown") {
     throw new Error(`Secret assignment ${owner.path} has no runtime owner.`);
@@ -197,7 +204,10 @@ function assignmentMatchesResolutionFailure(assignment: SecretAssignment, error:
   return isProviderScopedSecretResolutionError(error) || assignment.ref.id.trim() === error.refId;
 }
 
-function assertOwnerCanBeIsolated(assignments: SecretAssignment[], error: unknown): string {
+function assertOwnerCanBeIsolated(
+  assignments: SecretAssignment[],
+  error: unknown,
+): SecretDegradationReason {
   const owner = assignments[0]!;
   const reason = describeSecretResolutionError(error);
   if (

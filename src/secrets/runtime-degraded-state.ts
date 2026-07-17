@@ -1,4 +1,11 @@
 /** Process-local registry for SecretRef owners isolated during cold startup. */
+import type { SecretResolutionFailureReason } from "./resolve-errors.js";
+
+export type SecretDegradationReason =
+  | SecretResolutionFailureReason
+  | "resolved secret value was invalid"
+  | "secret reference is not allowed for this provider"
+  | "secret resolution failed";
 
 export type SecretOwnerKind =
   | "account"
@@ -16,7 +23,7 @@ export type DegradedSecretOwner = {
   state: "unavailable";
   paths: string[];
   refKeys: string[];
-  reason: string;
+  reason: SecretDegradationReason;
 };
 
 /** SecretRef identities resolved for one owner in an active runtime snapshot. */
@@ -34,7 +41,7 @@ export const SECRET_DEGRADATION_RETRY_HINT = "openclaw secrets reload" as const;
 export type SecretDegradation = {
   kind: SecretOwnerKind;
   id: string;
-  reason: string;
+  reason: SecretDegradationReason;
   state: "cold" | "stale";
   retryHint: typeof SECRET_DEGRADATION_RETRY_HINT;
 };

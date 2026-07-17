@@ -108,17 +108,14 @@ type GatewayStartupConfigMeasure = <T>(
 ) => Promise<T>;
 
 function logSecretDegradation(log: GatewayStartupLog, degradation: SecretDegradation): void {
-  const reason = degradation.reason.includes(" SecretRef ")
-    ? "secret reference was not found"
-    : degradation.reason;
   log.warn(
     `[SECRETS_DEGRADED] ${degradation.state} ${degradation.kind}:${degradation.id}: ` +
-      `${reason}. Retry: ${degradation.retryHint}.`,
+      `${degradation.reason}. Retry: ${degradation.retryHint}.`,
     {
       event: "secrets.degraded",
       ownerKind: degradation.kind,
       ownerId: degradation.id,
-      reason,
+      reason: degradation.reason,
       state: degradation.state,
       retryHint: degradation.retryHint,
     },

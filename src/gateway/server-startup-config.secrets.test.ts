@@ -682,7 +682,7 @@ describe("gateway startup config secret preflight", () => {
       code: "SECRETS_OWNER_UNAVAILABLE",
       path: "messages.tts.providers.elevenlabs.apiKey",
       message:
-        "Secret owner capability:tts is configured-unavailable; paths: messages.tts.providers.elevenlabs.apiKey; reason: secret reference was not found.",
+        "Secret owner capability:tts is configured-unavailable; paths: messages.tts.providers.elevenlabs.apiKey; reason: secret provider policy denied resolution.",
     };
     const prepareRuntimeSecretsSnapshot = vi.fn(async () => ({
       ...preparedSnapshot(sourceConfig),
@@ -695,9 +695,7 @@ describe("gateway startup config secret preflight", () => {
           state: "unavailable" as const,
           paths: ["messages.tts.providers.elevenlabs.apiKey"],
           refKeys: ["env:default:ELEVENLABS_API_KEY"],
-          reason:
-            "messages.tts.providers.elevenlabs.apiKey SecretRef is unresolved " +
-            "(env:default:PRIVATE_REF).",
+          reason: "secret provider policy denied resolution",
         },
       ],
     }));
@@ -722,19 +720,18 @@ describe("gateway startup config secret preflight", () => {
     );
     expect(logSecrets.warn).toHaveBeenCalledWith(`[${warning.code}] ${warning.message}`);
     expect(logSecrets.warn).toHaveBeenCalledWith(
-      "[SECRETS_DEGRADED] cold capability:tts: secret reference was not found. " +
+      "[SECRETS_DEGRADED] cold capability:tts: secret provider policy denied resolution. " +
         "Retry: openclaw secrets reload.",
       {
         event: "secrets.degraded",
         ownerKind: "capability",
         ownerId: "tts",
-        reason: "secret reference was not found",
+        reason: "secret provider policy denied resolution",
         state: "cold",
         retryHint: "openclaw secrets reload",
       },
     );
     expect(JSON.stringify(logSecrets.warn.mock.calls)).not.toContain("ELEVENLABS_API_KEY");
-    expect(JSON.stringify(logSecrets.warn.mock.calls)).not.toContain("PRIVATE_REF");
     expect(emitStateEvent).not.toHaveBeenCalled();
   });
 

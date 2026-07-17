@@ -1557,14 +1557,88 @@ describe("runtime web tools resolution", () => {
         ownerId: "web-fetch:firecrawl",
         state: "unavailable",
         paths: ["plugins.entries.firecrawl.config.webFetch.apiKey"],
-        reason: expect.stringContaining("MISSING_FIRECRAWL_REF"),
+        reason: "secret reference is not allowed for this provider",
       }),
     );
     expect(degradedOwners[0]?.refKeys).toEqual(["env:default:MISSING_FIRECRAWL_REF"]);
+    expect(degradedOwners[0]?.reason).not.toContain("MISSING_FIRECRAWL_REF");
     expectDiagnostic(context.warnings, {
       code: "SECRETS_OWNER_UNAVAILABLE",
       path: "plugins.entries.firecrawl.config.webFetch.apiKey",
     });
+  });
+
+  it("preserves an invalid resolved-value reason without exposing its ref", async () => {
+    const refId = "FIRECRAWL_API_KEY";
+    const resolveSpy = vi
+      .spyOn(secretResolve, "resolveSecretRefValues")
+      .mockResolvedValue(new Map([[`env:default:${refId}`, { value: "private-secret-value" }]]));
+    restoreResolveSecretRefValuesSpy = () => resolveSpy.mockRestore();
+
+    const { degradedOwners } = await runRuntimeWebTools({
+      config: asConfig({
+        plugins: {
+          entries: {
+            firecrawl: {
+              config: {
+                webFetch: {
+                  apiKey: { source: "env", provider: "default", id: refId },
+                },
+              },
+            },
+          },
+        },
+        tools: { web: { fetch: { provider: "firecrawl" } } },
+      }),
+      allowUnavailableSecretOwners: true,
+    });
+
+    expect(degradedOwners).toMatchObject([
+      {
+        ownerKind: "capability",
+        ownerId: "web-fetch:firecrawl",
+        reason: "resolved secret value was invalid",
+      },
+    ]);
+    expect(degradedOwners[0]?.reason).not.toContain(refId);
+    expect(degradedOwners[0]?.reason).not.toContain("private-secret-value");
+  });
+
+  it("preserves a denied-provider reason without exposing its ref", async () => {
+    const refId = "FIRECRAWL_API_KEY";
+    const { degradedOwners } = await runRuntimeWebTools({
+      config: asConfig({
+        secrets: {
+          providers: {
+            default: { source: "env", allowlist: ["OTHER_API_KEY"] },
+          },
+        },
+        plugins: {
+          entries: {
+            firecrawl: {
+              config: {
+                webFetch: {
+                  apiKey: { source: "env", provider: "default", id: refId },
+                },
+              },
+            },
+          },
+        },
+        tools: { web: { fetch: { provider: "firecrawl" } } },
+      }),
+      env: { [refId]: "private-secret-value" },
+      allowUnavailableSecretOwners: true,
+    });
+
+    expect(degradedOwners).toMatchObject([
+      {
+        ownerKind: "capability",
+        ownerId: "web-fetch:firecrawl",
+        reason: "secret provider policy denied resolution",
+      },
+    ]);
+    expect(degradedOwners[0]?.reason).not.toContain(refId);
+    expect(degradedOwners[0]?.reason).not.toContain("private-secret-value");
   });
 
   it("resolves web fetch fallback SecretRefs with provider env var allowlist", async () => {
@@ -1746,7 +1820,7 @@ describe("runtime web tools resolution", () => {
     expectDiagnostic(context.warnings, {
       code: "WEB_FETCH_PROVIDER_KEY_UNRESOLVED_NO_FALLBACK",
       path: "plugins.entries.firecrawl.config.webFetch.apiKey",
-      messageIncludes: 'SecretRef env var "AWS_SECRET_ACCESS_KEY" is not allowed.',
+      messageIncludes: "secret reference is not allowed for this provider",
     });
   });
 
