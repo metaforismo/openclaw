@@ -157,10 +157,10 @@ async function resolveStrictAssignments(params: {
         const failureMatched = assignments.some((assignment) =>
           assignmentMatchesResolutionFailure(assignment, error),
         );
-        const degradedOwner = createDegradedOwner(
-          assignments,
-          failureMatched ? reason : "secret reload was not activated",
-        );
+        if (!failureMatched) {
+          return [];
+        }
+        const degradedOwner = createDegradedOwner(assignments, reason);
         return [
           {
             ...degradedOwner,

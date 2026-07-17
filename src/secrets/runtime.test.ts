@@ -480,14 +480,13 @@ describe("secrets runtime snapshot", () => {
   });
 
   it("fails closed for missing TTS SecretRefs outside cold-start isolation", async () => {
-    const apiKey = "test-api-key";
     const error = await prepareSecretsRuntimeSnapshot({
       config: asConfig({
         models: {
           providers: {
-            openai: {
-              apiKey: { source: "env", provider: "default", id: "OPENAI_API_KEY" },
-              baseUrl: "https://api.openai.com/v1",
+            example: {
+              apiKey: { source: "env", provider: "default", id: "CURRENT_PROVIDER_REF" },
+              baseUrl: "https://example.invalid/v1",
               models: [],
             },
           },
@@ -502,7 +501,7 @@ describe("secrets runtime snapshot", () => {
           },
         },
       }),
-      env: { OPENAI_API_KEY: apiKey },
+      env: { CURRENT_PROVIDER_REF: "resolved" },
       includeAuthStoreRefs: false,
       loadablePluginOrigins: EMPTY_LOADABLE_PLUGIN_ORIGINS,
     }).then(
@@ -514,26 +513,16 @@ describe("secrets runtime snapshot", () => {
     expect(String(error)).toContain(
       'Environment variable "ELEVENLABS_API_KEY" is missing or empty.',
     );
-    expect(listSecretResolutionErrorOwners(error)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          ownerKind: "provider",
-          ownerId: "openai",
-          paths: ["models.providers.openai.apiKey"],
-          reason: "secret reload was not activated",
-          degradationState: "cold",
-          failureMatched: false,
-        }),
-        expect.objectContaining({
-          ownerKind: "capability",
-          ownerId: "tts",
-          paths: ["messages.tts.providers.elevenlabs.apiKey"],
-          reason: "secret reference was not found",
-          degradationState: "cold",
-          failureMatched: true,
-        }),
-      ]),
-    );
+    expect(listSecretResolutionErrorOwners(error)).toEqual([
+      expect.objectContaining({
+        ownerKind: "capability",
+        ownerId: "tts",
+        paths: ["messages.tts.providers.elevenlabs.apiKey"],
+        reason: "secret reference was not found",
+        degradationState: "cold",
+        failureMatched: true,
+      }),
+    ]);
   });
 
   it.each([
