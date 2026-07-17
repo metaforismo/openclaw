@@ -38,6 +38,30 @@ export type SecretAssignment = {
   apply: (value: unknown) => void;
 };
 
+type SecretAssignmentValidationFailure = Pick<SecretAssignment, "ownerKind" | "ownerId">;
+
+class SecretAssignmentValidationError extends Error {
+  readonly ownerKind: SecretOwnerKind;
+  readonly ownerId: string;
+
+  constructor(params: SecretAssignmentValidationFailure & { error: Error }) {
+    super(params.error.message, { cause: params.error });
+    this.name = "SecretAssignmentValidationError";
+    this.ownerKind = params.ownerKind;
+    this.ownerId = params.ownerId;
+  }
+}
+
+/** Returns the owner whose resolved value failed its target shape contract. */
+export function getSecretAssignmentValidationFailure(
+  error: unknown,
+): SecretAssignmentValidationFailure | undefined {
+  if (!(error instanceof SecretAssignmentValidationError)) {
+    return undefined;
+  }
+  return { ownerKind: error.ownerKind, ownerId: error.ownerId };
+}
+
 export type SecretAssignmentOwner = Pick<
   SecretAssignment,
   "ownerKind" | "ownerId" | "requiredForGateway" | "disposition"
@@ -178,14 +202,22 @@ export function applyResolvedAssignments(params: {
       throw new Error(`Secret reference "${key}" resolved to no value.`);
     }
     const value = params.resolved.get(key);
-    assertExpectedResolvedSecretValue({
-      value,
-      expected: assignment.expected,
-      errorMessage:
-        assignment.expected === "string"
-          ? `${assignment.path} resolved to a non-string or empty value.`
-          : `${assignment.path} resolved to an unsupported value type.`,
-    });
+    try {
+      assertExpectedResolvedSecretValue({
+        value,
+        expected: assignment.expected,
+        errorMessage:
+          assignment.expected === "string"
+            ? `${assignment.path} resolved to a non-string or empty value.`
+            : `${assignment.path} resolved to an unsupported value type.`,
+      });
+    } catch (error) {
+      throw new SecretAssignmentValidationError({
+        error: error instanceof Error ? error : new Error(String(error)),
+        ownerKind: assignment.ownerKind,
+        ownerId: assignment.ownerId,
+      });
+    }
     values.push(value);
   }
   for (const [index, assignment] of params.assignments.entries()) {

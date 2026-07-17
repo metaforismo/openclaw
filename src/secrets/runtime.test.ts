@@ -914,40 +914,50 @@ describe("secrets runtime snapshot", () => {
     );
     await fs.chmod(secretsPath, 0o600);
 
-    await expect(
-      prepareSecretsRuntimeSnapshot({
-        config: asConfig({
-          secrets: {
-            providers: {
-              ttsfile: {
-                source: "file",
-                path: secretsPath,
-                mode: "json",
-              },
+    const error = await prepareSecretsRuntimeSnapshot({
+      config: asConfig({
+        secrets: {
+          providers: {
+            ttsfile: {
+              source: "file",
+              path: secretsPath,
+              mode: "json",
             },
           },
-          messages: {
-            tts: {
-              providers: {
-                elevenlabs: {
-                  apiKey: {
-                    source: "file",
-                    provider: "ttsfile",
-                    id: "/providers/elevenlabs/apiKey",
-                  },
+        },
+        messages: {
+          tts: {
+            providers: {
+              elevenlabs: {
+                apiKey: {
+                  source: "file",
+                  provider: "ttsfile",
+                  id: "/providers/elevenlabs/apiKey",
                 },
               },
             },
           },
-        }),
-        env: {},
-        includeAuthStoreRefs: false,
-        allowUnavailableSecretOwners: true,
-        loadablePluginOrigins: EMPTY_LOADABLE_PLUGIN_ORIGINS,
+        },
       }),
-    ).rejects.toThrow(
+      env: {},
+      includeAuthStoreRefs: false,
+      loadablePluginOrigins: EMPTY_LOADABLE_PLUGIN_ORIGINS,
+    }).catch((failure: unknown) => failure);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(String(error)).toContain(
       "messages.tts.providers.elevenlabs.apiKey resolved to a non-string or empty value.",
     );
+    expect(listSecretResolutionErrorOwners(error)).toEqual([
+      expect.objectContaining({
+        ownerKind: "capability",
+        ownerId: "tts",
+        paths: ["messages.tts.providers.elevenlabs.apiKey"],
+        reason: "resolved secret value was invalid",
+        degradationState: "cold",
+        failureMatched: true,
+      }),
+    ]);
   });
 
   it("still fails required gateway auth SecretRefs when env is missing", async () => {

@@ -15,6 +15,7 @@ import type { DegradedSecretOwner, SecretOwnerRefState } from "./runtime-degrade
 import { associateSecretResolutionErrorOwners } from "./runtime-degraded-state.js";
 import {
   applyResolvedAssignments,
+  getSecretAssignmentValidationFailure,
   pushWarning,
   type ResolverContext,
   type SecretAssignment,
@@ -148,14 +149,20 @@ async function resolveStrictAssignments(params: {
     registerResolvedValuesForRedaction(resolved);
     applyResolvedAssignments({ assignments: params.assignments, resolved });
   } catch (error) {
-    const reason = describeSecretResolutionError(error);
+    const validationFailure = getSecretAssignmentValidationFailure(error);
+    const reason = validationFailure
+      ? "resolved secret value was invalid"
+      : describeSecretResolutionError(error);
     if (reason) {
       const owners = groupAssignmentsByOwner(params.assignments).flatMap((assignments) => {
         if (assignments[0]?.ownerKind === "unknown") {
           return [];
         }
         const failureMatched = assignments.some((assignment) =>
-          assignmentMatchesResolutionFailure(assignment, error),
+          validationFailure
+            ? assignment.ownerKind === validationFailure.ownerKind &&
+              assignment.ownerId === validationFailure.ownerId
+            : assignmentMatchesResolutionFailure(assignment, error),
         );
         if (!failureMatched) {
           return [];

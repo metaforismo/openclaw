@@ -778,6 +778,65 @@ describe("gateway startup config secret preflight", () => {
     },
   );
 
+  it.each(["reload", "restart-check"] as const)(
+    "publishes the owner when a resolved secret value is invalid during %s",
+    async (reason) => {
+      activateSecretsRuntimeSnapshotForTest(preparedSnapshot(gatewayTokenConfig({})));
+      const invalidSecretError = new Error(
+        "messages.tts.providers.elevenlabs.apiKey resolved to a non-string or empty value.",
+      );
+      associateSecretResolutionErrorOwners(invalidSecretError, [
+        {
+          ownerKind: "capability",
+          ownerId: "tts",
+          state: "unavailable",
+          paths: ["messages.tts.providers.elevenlabs.apiKey"],
+          refKeys: ["file:ttsfile:/private/value"],
+          reason: "resolved secret value was invalid",
+          degradationState: "stale",
+          failureMatched: true,
+        },
+      ]);
+      const prepareRuntimeSecretsSnapshot = vi.fn(async () => {
+        throw invalidSecretError;
+      });
+      const emitStateEvent = vi.fn();
+      const logSecrets = mockLogSecretsForTest();
+      const activateRuntimeSecrets = runtimeSecretsActivatorForTest({
+        prepareRuntimeSecretsSnapshot,
+        emitStateEvent,
+        logSecrets,
+      });
+
+      await expect(
+        activateRuntimeSecrets(gatewayTokenConfig({}), {
+          reason,
+          activate: false,
+          publishFailureAsDegraded: true,
+        }),
+      ).rejects.toThrow(invalidSecretError.message);
+
+      expect(logSecrets.warn).toHaveBeenCalledWith(
+        "[SECRETS_DEGRADED] stale capability:tts: resolved secret value was invalid. " +
+          "Retry: openclaw secrets reload.",
+        {
+          event: "secrets.degraded",
+          ownerKind: "capability",
+          ownerId: "tts",
+          reason: "resolved secret value was invalid",
+          state: "stale",
+          retryHint: "openclaw secrets reload",
+        },
+      );
+      expect(JSON.stringify(logSecrets.warn.mock.calls)).not.toContain("/private/value");
+      expect(emitStateEvent).toHaveBeenCalledWith(
+        "SECRETS_RELOADER_DEGRADED",
+        "Secret resolution failed; runtime remains on the last-known-good snapshot.",
+        expect.anything(),
+      );
+    },
+  );
+
   it("publishes a redacted unknown-owner warning for an unmapped typed reload failure", async () => {
     activateSecretsRuntimeSnapshotForTest(preparedSnapshot(gatewayTokenConfig({})));
     const missingSecretError = refResolutionError({
