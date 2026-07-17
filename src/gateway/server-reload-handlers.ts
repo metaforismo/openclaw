@@ -1870,8 +1870,24 @@ export function startManagedGatewayConfigReloader(
       }
       const metadata = getRuntimeConfigSnapshotMetadata();
       const previousRuntimeSourceConfig = getRuntimeConfigSourceSnapshot();
-      const previousSecretsSourceConfig = getActiveSecretsRuntimeSnapshot()?.sourceConfig;
+      const previousSecretsSnapshot = getActiveSecretsRuntimeSnapshot();
+      const previousSecretsSourceConfig = previousSecretsSnapshot?.sourceConfig;
+      const previousSecretOwners = previousSecretsSnapshot?.secretOwners;
       const previousSecretsRevision = getActiveSecretsRuntimeSnapshotRevision();
+      const preparedSecrets = await params.activateRuntimeSecrets(
+        prepareRuntimeCandidate(nextConfig, sourceConfig, transactionOwnership),
+        {
+          reason: "reload",
+          activate: false,
+          publishFailureAsDegraded: true,
+          canPublishFailureAsDegraded: transactionOwnership.isCurrent,
+          ...(transactionOwnership.runtimeEnv ? { env: transactionOwnership.runtimeEnv.env } : {}),
+          includeAuthStoreRefs: transactionOwnership.runtimeRefresh?.includeAuthStoreRefs,
+        },
+      );
+      if (!transactionOwnership.isCurrent()) {
+        throw new GatewayConfigReloadSupersededError();
+      }
       if (
         !metadata ||
         !previousRuntimeSourceConfig ||
@@ -1879,11 +1895,8 @@ export function startManagedGatewayConfigReloader(
           expectedSecretsRevision: previousSecretsRevision,
           expectedRuntimeConfigRevision: metadata.revision,
           runtimeSourceConfig: sourceConfig,
-          secretsSourceConfig: prepareRuntimeCandidate(
-            nextConfig,
-            sourceConfig,
-            transactionOwnership,
-          ),
+          secretsSourceConfig: preparedSecrets.sourceConfig,
+          secretOwners: preparedSecrets.secretOwners,
         }) ||
         !transactionOwnership.isCurrent()
       ) {
@@ -1899,6 +1912,7 @@ export function startManagedGatewayConfigReloader(
             expectedRuntimeConfigRevision: committedMetadata.revision,
             runtimeSourceConfig: previousRuntimeSourceConfig,
             secretsSourceConfig: previousSecretsSourceConfig ?? previousRuntimeSourceConfig,
+            secretOwners: previousSecretOwners,
           })
         ) {
           throw new GatewayConfigReloadSupersededError();

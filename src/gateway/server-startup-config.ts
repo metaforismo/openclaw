@@ -75,6 +75,8 @@ type RuntimeSecretsActivationParams = {
   activate: boolean;
   /** This preparation belongs to a live reload; publish failure against the active snapshot. */
   publishFailureAsDegraded?: boolean;
+  /** Reject warning publication after a speculative reload loses transaction ownership. */
+  canPublishFailureAsDegraded?: () => boolean;
   env?: NodeJS.ProcessEnv;
   includeAuthStoreRefs?: boolean;
 };
@@ -322,7 +324,8 @@ export function createRuntimeSecretsActivator(params: {
     const details = String(err);
     const publishDegradation =
       activationParams.reason !== "startup" &&
-      (activationParams.activate || activationParams.publishFailureAsDegraded === true);
+      (activationParams.activate || activationParams.publishFailureAsDegraded === true) &&
+      (activationParams.canPublishFailureAsDegraded?.() ?? true);
     if (publishDegradation) {
       const degradations = classifySecretResolutionErrorDegradations(err);
       if (degradations.length > 0) {

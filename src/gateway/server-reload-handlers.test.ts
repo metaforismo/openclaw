@@ -41,6 +41,7 @@ import {
 } from "../process/gateway-work-admission.js";
 import { CommandLane } from "../process/lanes.js";
 import { createEmptyRuntimeWebToolsMetadata } from "../secrets/runtime-fast-path.js";
+import { classifySecretOwnerDegradationState } from "../secrets/runtime-owner-assignments.js";
 import {
   activateSecretsRuntimeSnapshot,
   clearSecretsRuntimeSnapshot,
@@ -884,7 +885,7 @@ describe("managed reload transaction ownership", () => {
     async (kind) => {
       const result = await runManagedOwnershipScenario({ kind, queueRevert: true });
 
-      expect(result.activateRuntimeSecrets).toHaveBeenCalledOnce();
+      expect(result.activateRuntimeSecrets).toHaveBeenCalledTimes(2);
       expect(result.commitTerminalConfig).not.toHaveBeenCalled();
       expect(result.acceptTerminalConfig).toHaveBeenCalledOnce();
       expect(result.prepareTerminalConfig).toHaveBeenCalledOnce();
@@ -3621,6 +3622,158 @@ describe("gateway Gmail hot reload handlers", () => {
     expect(heartbeatRunner.updateConfig).not.toHaveBeenCalled();
     expect(commitTerminalConfig).toHaveBeenCalledWith(nextConfig);
     await reloader.stop();
+  });
+
+  it("refreshes owner refs when only the resolved source snapshot changes", async () => {
+    vi.useFakeTimers();
+    const firstRef = { source: "env" as const, provider: "default", id: "TTS_FIRST" };
+    const secondRef = { source: "env" as const, provider: "default", id: "TTS_SECOND" };
+    const sourceConfig = (ref: typeof firstRef): OpenClawConfig => ({
+      gateway: { reload: { debounceMs: 0 } },
+      messages: { tts: { providers: { elevenlabs: { apiKey: ref } } } },
+    });
+    const runtimeConfig: OpenClawConfig = {
+      gateway: { reload: { debounceMs: 0 } },
+      messages: { tts: { providers: { elevenlabs: { apiKey: String(42) } } } },
+    };
+    const initialSourceConfig = sourceConfig(firstRef);
+    const nextSourceConfig = sourceConfig(secondRef);
+    activateSecretsRuntimeSnapshot({
+      sourceConfig: initialSourceConfig,
+      config: runtimeConfig,
+      authStores: [],
+      authStoreCredentialsRevision: getRuntimeAuthProfileStoreCredentialsRevision(),
+      warnings: [],
+      secretOwners: [
+        {
+          ownerKind: "capability",
+          ownerId: "tts",
+          refKeys: ["env:default:TTS_FIRST"],
+        },
+      ],
+      webTools: createEmptyRuntimeWebToolsMetadata(),
+    });
+    const writeListenerRef: { current: ((event: ConfigWriteNotification) => void) | null } = {
+      current: null,
+    };
+    const activateRuntimeSecrets = vi.fn(async (config: OpenClawConfig) => ({
+      sourceConfig: config,
+      config: runtimeConfig,
+      authStores: [],
+      authStoreCredentialsRevision: getRuntimeAuthProfileStoreCredentialsRevision(),
+      warnings: [],
+      secretOwners: [
+        {
+          ownerKind: "capability" as const,
+          ownerId: "tts",
+          refKeys: ["env:default:TTS_SECOND"],
+        },
+      ],
+      webTools: createEmptyRuntimeWebToolsMetadata(),
+    }));
+    const reloader = startManagedGatewayConfigReloader({
+      minimalTestGateway: false,
+      initialConfig: runtimeConfig,
+      initialCompareConfig: runtimeConfig,
+      initialInternalWriteHash: null,
+      watchPath: "/tmp/openclaw.json",
+      readSnapshot: vi.fn(async () => ({
+        path: "/tmp/openclaw.json",
+        exists: true,
+        raw: "{}",
+        parsed: nextSourceConfig,
+        sourceConfig: nextSourceConfig,
+        resolved: runtimeConfig,
+        valid: true,
+        runtimeConfig,
+        config: runtimeConfig,
+        issues: [],
+        warnings: [],
+        legacyIssues: [],
+        hash: "same-runtime-next-source",
+      })) as never,
+      promoteSnapshot: vi.fn(async () => true) as never,
+      subscribeToWrites: ((listener: (event: ConfigWriteNotification) => void) => {
+        writeListenerRef.current = listener;
+        return () => {
+          if (writeListenerRef.current === listener) {
+            writeListenerRef.current = null;
+          }
+        };
+      }) as never,
+      prepareConfigCandidate: ({ runtimeConfig: candidateRuntime }) => ({
+        runtimeConfig: candidateRuntime,
+        compareConfig: candidateRuntime,
+      }),
+      deps: {} as never,
+      broadcast: vi.fn(),
+      getState: () => ({
+        hooksConfig: {} as never,
+        hookClientIpConfig: {} as never,
+        heartbeatRunner: { stop: vi.fn(), updateConfig: vi.fn() } as never,
+        cronState: {
+          cron: { start: vi.fn(async () => {}), stop: vi.fn() },
+          storePath: "/tmp/cron.json",
+          cronEnabled: false,
+        } as never,
+        channelHealthMonitor: null,
+      }),
+      setState: vi.fn(),
+      startChannel: vi.fn(async () => {}),
+      stopChannel: vi.fn(async () => {}),
+      reloadPlugins: vi.fn(async () => ({
+        restartChannels: new Set(),
+        activeChannels: new Set(),
+      })),
+      logHooks: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      logChannels: { info: vi.fn(), error: vi.fn() },
+      logCron: { error: vi.fn() },
+      logReload: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      channelManager: {} as never,
+      activateRuntimeSecrets: activateRuntimeSecrets as never,
+      resolveSharedGatewaySessionGenerationForConfig: () => undefined,
+      sharedGatewaySessionGenerationState: { current: undefined, required: null },
+      clients: [],
+      reconcileTerminalSessions: vi.fn(),
+      commitTerminalConfig: vi.fn(),
+      acceptTerminalConfig: vi.fn(),
+    });
+
+    try {
+      const listener = writeListenerRef.current;
+      if (!listener) {
+        throw new Error("Expected config write listener to be registered");
+      }
+      listener({
+        configPath: "/tmp/openclaw.json",
+        sourceConfig: nextSourceConfig,
+        runtimeConfig,
+        persistedHash: "same-runtime-next-source",
+        revision: 1,
+        fingerprint: "same-runtime",
+        sourceFingerprint: "next-source",
+        writtenAtMs: Date.now(),
+      });
+      await vi.runAllTimersAsync();
+
+      expect(getActiveSecretsRuntimeSnapshot()?.secretOwners).toEqual([
+        {
+          ownerKind: "capability",
+          ownerId: "tts",
+          refKeys: ["env:default:TTS_SECOND"],
+        },
+      ]);
+      expect(
+        classifySecretOwnerDegradationState({
+          ownerKind: "capability",
+          ownerId: "tts",
+          refs: [secondRef],
+          config: nextSourceConfig,
+        }),
+      ).toBe("stale");
+    } finally {
+      await reloader.stop();
+    }
   });
 
   it("rejects ownerless irreversible plans but applies safe hot plans", async () => {

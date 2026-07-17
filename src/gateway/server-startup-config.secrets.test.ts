@@ -834,6 +834,50 @@ describe("gateway startup config secret preflight", () => {
     },
   );
 
+  it("does not publish typed degradation after reload ownership expires", async () => {
+    activateSecretsRuntimeSnapshotForTest(preparedSnapshot(gatewayTokenConfig({})));
+    const failure = refResolutionError({
+      code: "SECRET_REF_NOT_FOUND",
+      source: "env",
+      provider: "default",
+      refId: "EXPIRED_RELOAD_REF",
+      message: "expired reload fixture",
+    });
+    associateSecretResolutionErrorOwners(failure, [
+      {
+        ownerKind: "capability",
+        ownerId: "tts",
+        state: "unavailable",
+        paths: ["messages.tts.providers.elevenlabs.apiKey"],
+        refKeys: ["env:default:EXPIRED_RELOAD_REF"],
+        reason: "secret reference was not found",
+        degradationState: "stale",
+        failureMatched: true,
+      },
+    ]);
+    const emitStateEvent = vi.fn();
+    const logSecrets = mockLogSecretsForTest();
+    const activateRuntimeSecrets = runtimeSecretsActivatorForTest({
+      prepareRuntimeSecretsSnapshot: vi.fn(async () => {
+        throw failure;
+      }),
+      emitStateEvent,
+      logSecrets,
+    });
+
+    await expect(
+      activateRuntimeSecrets(gatewayTokenConfig({}), {
+        reason: "reload",
+        activate: false,
+        publishFailureAsDegraded: true,
+        canPublishFailureAsDegraded: () => false,
+      }),
+    ).rejects.toThrow(failure.message);
+
+    expect(logSecrets.warn).not.toHaveBeenCalled();
+    expect(emitStateEvent).not.toHaveBeenCalled();
+  });
+
   it("publishes a redacted unknown-owner warning for an unmapped typed reload failure", async () => {
     activateSecretsRuntimeSnapshotForTest(preparedSnapshot(gatewayTokenConfig({})));
     const missingSecretError = refResolutionError({

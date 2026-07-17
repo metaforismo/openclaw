@@ -57,6 +57,13 @@ describe("secrets runtime state", () => {
       authStores: [],
       authStoreCredentialsRevision: getRuntimeAuthProfileStoreCredentialsRevision(),
       warnings: [],
+      secretOwners: [
+        {
+          ownerKind: "gateway",
+          ownerId: "auth",
+          refKeys: ["env:default:OPENCLAW_DEBUG_AUTH_TOKEN"],
+        },
+      ],
       webTools: {
         search: { providerSource: "none", diagnostics: [] },
         fetch: { providerSource: "none", diagnostics: [] },
@@ -111,6 +118,13 @@ describe("secrets runtime state", () => {
       ...rawSourceConfig,
       gateway: { ...rawSourceConfig.gateway, auth: { mode: "token" as const, token: secretRef } },
     } satisfies OpenClawConfig;
+    const nextSecretOwners = [
+      {
+        ownerKind: "gateway" as const,
+        ownerId: "auth",
+        refKeys: ["env:default:OPENCLAW_NEXT_AUTH_TOKEN"],
+      },
+    ];
 
     expect(
       setSecretsRuntimeSourceSnapshotIfCurrent({
@@ -118,12 +132,14 @@ describe("secrets runtime state", () => {
         expectedRuntimeConfigRevision: metadata.revision,
         runtimeSourceConfig: rawSourceConfig,
         secretsSourceConfig,
+        secretOwners: nextSecretOwners,
       }),
     ).toBe(true);
 
     expect(getRuntimeConfigSourceSnapshot()).toEqual(rawSourceConfig);
     expect(getActiveSecretsRuntimeSnapshot()?.sourceConfig).toEqual(secretsSourceConfig);
     expect(getActiveSecretsRuntimeSnapshot()?.config).toEqual(snapshot.config);
+    expect(getActiveSecretsRuntimeSnapshot()?.secretOwners).toEqual(nextSecretOwners);
   });
 
   it("preserves live auth bookkeeping when prepared credentials activate", () => {
