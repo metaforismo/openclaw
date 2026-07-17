@@ -271,6 +271,7 @@ export async function prepareSecretsRuntimeSnapshot(params: {
     : {
         metadata: createEmptyRuntimeWebToolsMetadata(),
         degradedOwners: [],
+        secretOwners: [],
       };
   const snapshot = {
     sourceConfig,
