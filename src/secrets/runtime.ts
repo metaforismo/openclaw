@@ -259,7 +259,7 @@ export async function prepareSecretsRuntimeSnapshot(params: {
           },
         })
       : [];
-  const secretOwners = listSecretAssignmentOwners(context.assignments);
+  const assignmentSecretOwners = listSecretAssignmentOwners(context.assignments);
 
   const webTools = includeConfigRefs
     ? await resolveRuntimeWebTools({
@@ -279,7 +279,7 @@ export async function prepareSecretsRuntimeSnapshot(params: {
     authStoreCredentialsRevision,
     warnings: context.warnings,
     degradedOwners: [...degradedOwners, ...webTools.degradedOwners],
-    secretOwners,
+    secretOwners: [...assignmentSecretOwners, ...webTools.secretOwners],
     webTools: webTools.metadata,
   };
   setPreparedSecretsRuntimeSnapshotRefreshContext(snapshot, {

@@ -571,6 +571,79 @@ describe("secrets runtime snapshot", () => {
     ]);
   });
 
+  it.each([
+    ["explicit", "WEB_TOOL_REF", "stale"],
+    ["explicit", "CHANGED_WEB_TOOL_REF", "cold"],
+    ["auto", "WEB_TOOL_REF", "stale"],
+  ] as const)("classifies %s web tool ref %s", async (mode, candidateId, expectedState) => {
+    const config = (id: string) =>
+      asConfig({
+        tools: {
+          web: { search: mode === "explicit" ? { provider: "gemini" } : { enabled: true } },
+        },
+        plugins: {
+          entries: {
+            ...(mode === "auto"
+              ? {
+                  brave: {
+                    config: {
+                      webSearch: {
+                        apiKey: { source: "env", provider: "default", id: "EARLIER_REF" },
+                      },
+                    },
+                  },
+                }
+              : {}),
+            google: {
+              config: {
+                webSearch: { apiKey: { source: "env", provider: "default", id } },
+              },
+            },
+          },
+        },
+      });
+    const active = await prepareSecretsRuntimeSnapshot({
+      config: config("WEB_TOOL_REF"),
+      env: { WEB_TOOL_REF: "resolved" },
+      includeAuthStoreRefs: false,
+      loadablePluginOrigins: EMPTY_LOADABLE_PLUGIN_ORIGINS,
+    });
+    activateSecretsRuntimeSnapshotState({
+      snapshot: active,
+      refreshContext: null,
+      refreshHandler: null,
+    });
+
+    const error = await prepareSecretsRuntimeSnapshot({
+      config: config(candidateId),
+      env: {},
+      includeAuthStoreRefs: false,
+      loadablePluginOrigins: EMPTY_LOADABLE_PLUGIN_ORIGINS,
+    }).catch((failure: unknown) => failure);
+
+    const owners = listSecretResolutionErrorOwners(error);
+    expect(owners).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          ownerKind: "capability",
+          ownerId: "web-search:gemini",
+          degradationState: expectedState,
+          failureMatched: true,
+        }),
+      ]),
+    );
+    if (mode === "auto") {
+      expect(owners).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            ownerId: "web-search:brave",
+            degradationState: "cold",
+          }),
+        ]),
+      );
+    }
+  });
+
   it("isolates the TTS owner when its SecretRef is missing during cold startup", async () => {
     const snapshot = await prepareSecretsRuntimeSnapshot({
       config: asConfig({

@@ -22,6 +22,7 @@ const { resolveRuntimeWebToolsMock, runtimePrepareImportMock } = vi.hoisted(() =
       diagnostics: [],
     },
     degradedOwners: [],
+    secretOwners: [],
   })),
   runtimePrepareImportMock: vi.fn(),
 }));

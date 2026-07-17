@@ -20,8 +20,15 @@ import { createLazyRuntimeSurface } from "../shared/lazy-runtime.js";
 import { normalizeSecretInput } from "../utils/normalize-secret-input.js";
 import { secretRefKey } from "./ref-contract.js";
 import { resolveSecretRefValues } from "./resolve.js";
-import type { DegradedSecretOwner } from "./runtime-degraded-state.js";
-import { warnDegradedSecretOwner } from "./runtime-owner-assignments.js";
+import {
+  associateSecretResolutionErrorOwners,
+  type DegradedSecretOwner,
+  type SecretOwnerRefState,
+} from "./runtime-degraded-state.js";
+import {
+  classifySecretOwnerDegradationState,
+  warnDegradedSecretOwner,
+} from "./runtime-owner-assignments.js";
 import { hasCredentialBearingObjectValue } from "./runtime-secret-scan.js";
 import type { ResolverContext, SecretDefaults } from "./runtime-shared.js";
 import { runtimeWebSecretOwnerId } from "./runtime-web-secret-owner.js";
@@ -31,7 +38,9 @@ import {
   isRecord,
   resolveRuntimeWebProviderSurface,
   resolveRuntimeWebProviderSelection,
+  RuntimeWebProviderUnavailableError,
   type RuntimeWebProviderSelectionResult,
+  type RuntimeWebSecretOwner,
   type SecretResolutionResult,
 } from "./runtime-web-tools.shared.js";
 import type {
@@ -67,7 +76,22 @@ type SecretResolutionSource =
 type ResolvedRuntimeWebTools = {
   metadata: RuntimeWebToolsMetadata;
   degradedOwners: DegradedSecretOwner[];
+  secretOwners: SecretOwnerRefState[];
 };
+
+function createUnavailableWebProviderOwner(params: {
+  kind: "search" | "fetch";
+  unavailable: NonNullable<RuntimeWebProviderSelectionResult["unavailableProvider"]>;
+}): DegradedSecretOwner {
+  return {
+    ownerKind: "capability",
+    ownerId: runtimeWebSecretOwnerId(params.kind, params.unavailable.providerId),
+    state: "unavailable",
+    paths: [params.unavailable.path],
+    refKeys: [params.unavailable.refKey],
+    reason: params.unavailable.reason,
+  };
+}
 
 function collectUnavailableWebProvider(params: {
   kind: "search" | "fetch";
@@ -79,16 +103,43 @@ function collectUnavailableWebProvider(params: {
   if (!unavailable) {
     return;
   }
-  const owner: DegradedSecretOwner = {
-    ownerKind: "capability",
-    ownerId: runtimeWebSecretOwnerId(params.kind, unavailable.providerId),
-    state: "unavailable",
-    paths: [unavailable.path],
-    refKeys: [unavailable.refKey],
-    reason: unavailable.reason,
-  };
+  const owner = createUnavailableWebProviderOwner({ kind: params.kind, unavailable });
   params.degradedOwners.push(owner);
   warnDegradedSecretOwner(params.context, owner);
+}
+
+function toWebSecretOwnerRefState(
+  kind: "search" | "fetch",
+  owner: RuntimeWebSecretOwner,
+): SecretOwnerRefState {
+  return {
+    ownerKind: "capability",
+    ownerId: runtimeWebSecretOwnerId(kind, owner.providerId),
+    refKeys: [owner.refKey],
+  };
+}
+
+function associateWebProviderResolutionError(params: {
+  kind: "search" | "fetch";
+  config: OpenClawConfig;
+  error: RuntimeWebProviderUnavailableError;
+}): void {
+  associateSecretResolutionErrorOwners(
+    params.error,
+    params.error.unavailableProviders.map((unavailable) => {
+      const owner = createUnavailableWebProviderOwner({ kind: params.kind, unavailable });
+      return {
+        ...owner,
+        degradationState: classifySecretOwnerDegradationState({
+          ownerKind: owner.ownerKind,
+          ownerId: owner.ownerId,
+          refs: [unavailable.ref],
+          config: params.config,
+        }),
+        failureMatched: true,
+      };
+    }),
+  );
 }
 
 function needsRuntimeWebFetchProviderDiscovery(params: {
@@ -327,12 +378,14 @@ async function resolveSecretInputWithEnvFallback(params: {
       value: resolvedFromRef,
       source: "secretRef",
       secretRefConfigured: true,
+      secretRef: ref,
       secretRefKey: secretRefKey(ref),
     };
   }
 
   return {
     source: "missing",
+    secretRef: ref,
     secretRefKey: secretRefKey(ref),
     unresolvedRefReason,
     secretRefConfigured: true,
@@ -540,9 +593,11 @@ export async function resolveRuntimeWebTools(params: {
   const defaults = params.sourceConfig.secrets?.defaults;
   const diagnostics: RuntimeWebDiagnostic[] = [];
   const degradedOwners: DegradedSecretOwner[] = [];
+  const secretOwners: SecretOwnerRefState[] = [];
   const finish = (metadata: RuntimeWebToolsMetadata): ResolvedRuntimeWebTools => ({
     metadata,
     degradedOwners,
+    secretOwners,
   });
   const env = { ...process.env, ...params.context.env };
 
@@ -696,6 +751,12 @@ export async function resolveRuntimeWebTools(params: {
       allowKeylessAutoSelect: false,
       deferKeylessFallback: true,
       allowUnavailableExplicitProvider: params.allowUnavailableSecretOwners,
+      onUnavailableProviders: (error) =>
+        associateWebProviderResolutionError({
+          kind: "search",
+          config: params.sourceConfig,
+          error,
+        }),
       noFallbackCode: "WEB_SEARCH_KEY_UNRESOLVED_NO_FALLBACK",
       autoDetectSelectedCode: "WEB_SEARCH_AUTODETECT_SELECTED",
       readConfiguredCredential: ({ provider, config, toolConfig }) =>
@@ -748,6 +809,9 @@ export async function resolveRuntimeWebTools(params: {
         );
       },
     });
+    if (searchSelection.secretOwner) {
+      secretOwners.push(toWebSecretOwnerRefState("search", searchSelection.secretOwner));
+    }
     collectUnavailableWebProvider({
       kind: "search",
       result: searchSelection,
@@ -815,6 +879,12 @@ export async function resolveRuntimeWebTools(params: {
       allowKeylessAutoSelect: true,
       deferKeylessFallback: false,
       allowUnavailableExplicitProvider: params.allowUnavailableSecretOwners,
+      onUnavailableProviders: (error) =>
+        associateWebProviderResolutionError({
+          kind: "fetch",
+          config: params.sourceConfig,
+          error,
+        }),
       noFallbackCode: "WEB_FETCH_PROVIDER_KEY_UNRESOLVED_NO_FALLBACK",
       autoDetectSelectedCode: "WEB_FETCH_AUTODETECT_SELECTED",
       readConfiguredCredential: ({ provider, config, toolConfig }) =>
@@ -868,6 +938,9 @@ export async function resolveRuntimeWebTools(params: {
         );
       },
     });
+    if (fetchSelection.secretOwner) {
+      secretOwners.push(toWebSecretOwnerRefState("fetch", fetchSelection.secretOwner));
+    }
     collectUnavailableWebProvider({
       kind: "fetch",
       result: fetchSelection,

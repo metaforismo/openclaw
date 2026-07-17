@@ -64,6 +64,7 @@ vi.mock("./runtime-prepare.runtime.js", () => ({
       diagnostics: [],
     },
     degradedOwners: [],
+    secretOwners: [],
   }),
 }));
 

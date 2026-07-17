@@ -694,7 +694,9 @@ describe("gateway startup config secret preflight", () => {
           state: "unavailable" as const,
           paths: ["messages.tts.providers.elevenlabs.apiKey"],
           refKeys: ["env:default:ELEVENLABS_API_KEY"],
-          reason: "secret reference was not found",
+          reason:
+            "messages.tts.providers.elevenlabs.apiKey SecretRef is unresolved " +
+            "(env:default:PRIVATE_REF).",
         },
       ],
     }));
@@ -731,6 +733,7 @@ describe("gateway startup config secret preflight", () => {
       },
     );
     expect(JSON.stringify(logSecrets.warn.mock.calls)).not.toContain("ELEVENLABS_API_KEY");
+    expect(JSON.stringify(logSecrets.warn.mock.calls)).not.toContain("PRIVATE_REF");
     expect(emitStateEvent).not.toHaveBeenCalled();
   });
 

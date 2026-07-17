@@ -1,5 +1,7 @@
 /** Resolves SecretRef assignments atomically by owning runtime surface. */
 import { isDeepStrictEqual } from "node:util";
+import type { OpenClawConfig } from "../config/types.openclaw.js";
+import type { SecretRef } from "../config/types.secrets.js";
 import { toErrorObject } from "../infra/errors.js";
 import { registerSecretValueForRedaction } from "../logging/secret-redaction-registry.js";
 import { secretRefKey } from "./ref-contract.js";
@@ -24,27 +26,28 @@ import {
 
 type SecretResolutionOptions = Parameters<typeof resolveSecretRefValues>[1];
 
-function classifyOwnerDegradationState(params: {
-  assignments: SecretAssignment[];
-  options: SecretResolutionOptions;
+/** Classifies whether an unresolved owner has an unchanged active SecretRef snapshot. */
+export function classifySecretOwnerDegradationState(params: {
+  ownerKind: DegradedSecretOwner["ownerKind"];
+  ownerId: string;
+  refs: SecretRef[];
+  config: OpenClawConfig;
 }): "cold" | "stale" {
   const active = getActiveSecretsRuntimeSnapshot();
-  const owner = params.assignments[0];
   if (
     !active ||
-    !owner ||
     active.degradedOwners?.some(
-      (entry) => entry.ownerKind === owner.ownerKind && entry.ownerId === owner.ownerId,
+      (entry) => entry.ownerKind === params.ownerKind && entry.ownerId === params.ownerId,
     )
   ) {
     return "cold";
   }
   const activeOwner = active.secretOwners?.find(
-    (entry) => entry.ownerKind === owner.ownerKind && entry.ownerId === owner.ownerId,
+    (entry) => entry.ownerKind === params.ownerKind && entry.ownerId === params.ownerId,
   );
-  const refKeys = params.assignments.map((assignment) => secretRefKey(assignment.ref)).toSorted();
-  const providerDefinitionsMatch = params.assignments.every((assignment) =>
-    hasSameSecretProviderDefinition(assignment.ref, [active.sourceConfig, params.options.config]),
+  const refKeys = params.refs.map(secretRefKey).toSorted();
+  const providerDefinitionsMatch = params.refs.every((ref) =>
+    hasSameSecretProviderDefinition(ref, [active.sourceConfig, params.config]),
   );
   return activeOwner &&
     isDeepStrictEqual(activeOwner.refKeys.toSorted(), refKeys) &&
@@ -154,15 +157,18 @@ async function resolveStrictAssignments(params: {
         const failureMatched = assignments.some((assignment) =>
           assignmentMatchesResolutionFailure(assignment, error),
         );
+        const degradedOwner = createDegradedOwner(
+          assignments,
+          failureMatched ? reason : "secret reload was not activated",
+        );
         return [
           {
-            ...createDegradedOwner(
-              assignments,
-              failureMatched ? reason : "secret reload was not activated",
-            ),
-            degradationState: classifyOwnerDegradationState({
-              assignments,
-              options: params.options,
+            ...degradedOwner,
+            degradationState: classifySecretOwnerDegradationState({
+              ownerKind: degradedOwner.ownerKind,
+              ownerId: degradedOwner.ownerId,
+              refs: assignments.map((assignment) => assignment.ref),
+              config: params.options.config,
             }),
             failureMatched,
           },

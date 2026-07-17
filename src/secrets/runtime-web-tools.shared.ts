@@ -1,7 +1,7 @@
 /** Shared helpers for web-tool secret metadata resolution. */
 import { normalizeOptionalLowercaseString } from "@openclaw/normalization-core/string-coerce";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
-import { resolveSecretInputRef } from "../config/types.secrets.js";
+import { resolveSecretInputRef, type SecretRef } from "../config/types.secrets.js";
 import { createLazyRuntimeNamedExport } from "../shared/lazy-runtime.js";
 import { setPathExistingStrict } from "./path-utils.js";
 import type {
@@ -28,19 +28,41 @@ export type SecretResolutionResult<TSource extends string> = {
   value?: string;
   source: TSource;
   secretRefConfigured: boolean;
+  secretRef?: SecretRef;
   secretRefKey?: string;
   unresolvedRefReason?: string;
   fallbackEnvVar?: string;
 };
 
-export type RuntimeWebProviderSelectionResult = {
-  unavailableProvider?: {
-    providerId: string;
-    path: string;
-    refKey: string;
-    reason: string;
-  };
+export type RuntimeWebSecretOwner = {
+  providerId: string;
+  path: string;
+  ref: SecretRef;
+  refKey: string;
+  reason?: string;
 };
+
+export type RuntimeWebProviderSelectionResult = {
+  secretOwner?: RuntimeWebSecretOwner;
+  unavailableProvider?: RuntimeWebSecretOwner & { reason: string };
+};
+
+/** Carries typed web-provider ownership through strict reload failures. */
+export class RuntimeWebProviderUnavailableError extends Error {
+  readonly unavailableProviders: Array<
+    NonNullable<RuntimeWebProviderSelectionResult["unavailableProvider"]>
+  >;
+
+  constructor(
+    code: RuntimeWebWarningCode,
+    reason: string,
+    unavailableProviders: Array<RuntimeWebSecretOwner & { reason: string }>,
+  ) {
+    super(`[${code}] ${reason}`);
+    this.name = "RuntimeWebProviderUnavailableError";
+    this.unavailableProviders = unavailableProviders;
+  }
+}
 
 /**
  * Metadata fields shared by runtime web search and fetch provider selection.
@@ -82,6 +104,7 @@ type RuntimeWebProviderSelectionParams<
   deferKeylessFallback: boolean;
   /** Keep cold-start preparation alive when an explicit provider ref cannot resolve. */
   allowUnavailableExplicitProvider?: boolean;
+  onUnavailableProviders?: (error: RuntimeWebProviderUnavailableError) => void;
   noFallbackCode: RuntimeWebWarningCode;
   autoDetectSelectedCode: RuntimeWebWarningCode;
   /** Reads the primary credential location for a provider from source config. */
@@ -405,19 +428,22 @@ export async function resolveRuntimeWebProviderSelection<
   }
 
   let unavailableProvider: RuntimeWebProviderSelectionResult["unavailableProvider"];
+  let selectedProvider: string | undefined;
+  let selectedPath: string | undefined;
+  let selectedResolution: SecretResolutionResult<TSource> | undefined;
   if (params.enabled) {
     const candidates = params.configuredProvider
       ? params.providers.filter((provider) => provider.id === params.configuredProvider)
       : params.providers;
-    const unresolvedWithoutFallback: Array<{
+    type UnresolvedProvider = {
       provider: string;
       path: string;
+      ref?: SecretRef;
       refKey?: string;
       reason: string;
-    }> = [];
+    };
+    const unresolvedWithoutFallback: UnresolvedProvider[] = [];
 
-    let selectedProvider: string | undefined;
-    let selectedResolution: SecretResolutionResult<TSource> | undefined;
     let keylessFallbackProvider: TProvider | undefined;
 
     for (const provider of candidates) {
@@ -494,6 +520,7 @@ export async function resolveRuntimeWebProviderSelection<
         unresolvedWithoutFallback.push({
           provider: provider.id,
           path: selectedCandidatePath,
+          ref: selectedCandidateResolution.secretRef,
           refKey: selectedCandidateResolution.secretRefKey,
           reason: selectedCandidateResolution.unresolvedRefReason,
         });
@@ -513,6 +540,7 @@ export async function resolveRuntimeWebProviderSelection<
 
       if (params.configuredProvider) {
         selectedProvider = provider.id;
+        selectedPath = selectedCandidatePath;
         selectedResolution = selectedCandidateResolution;
         if (selectedCandidateResolution.value) {
           setResolvedCredentialPath({
@@ -531,6 +559,7 @@ export async function resolveRuntimeWebProviderSelection<
 
       if (isKeyless) {
         selectedProvider = provider.id;
+        selectedPath = selectedCandidatePath;
         selectedResolution = selectedCandidateResolution;
         if (selectedCandidateResolution.value) {
           setResolvedCredentialPath({
@@ -549,6 +578,7 @@ export async function resolveRuntimeWebProviderSelection<
 
       if (selectedCandidateResolution.value) {
         selectedProvider = provider.id;
+        selectedPath = selectedCandidatePath;
         selectedResolution = selectedCandidateResolution;
         setResolvedCredentialPath({
           resolvedConfig: params.resolvedConfig,
@@ -572,7 +602,7 @@ export async function resolveRuntimeWebProviderSelection<
       };
     }
 
-    const failUnresolvedNoFallback = (unresolved: { path: string; reason: string }) => {
+    const recordUnresolvedNoFallback = (unresolved: { path: string; reason: string }) => {
       const diagnostic: RuntimeWebDiagnostic = {
         code: params.noFallbackCode,
         message: unresolved.reason,
@@ -585,6 +615,34 @@ export async function resolveRuntimeWebProviderSelection<
         path: unresolved.path,
         message: unresolved.reason,
       });
+    };
+    const failUnresolvedNoFallback = (
+      unresolved: UnresolvedProvider,
+      related: UnresolvedProvider[] = [unresolved],
+    ): never => {
+      recordUnresolvedNoFallback(unresolved);
+      const unavailableProviders = related.flatMap((entry) =>
+        entry.ref && entry.refKey
+          ? [
+              {
+                providerId: entry.provider,
+                path: entry.path,
+                ref: entry.ref,
+                refKey: entry.refKey,
+                reason: entry.reason,
+              },
+            ]
+          : [],
+      );
+      if (unavailableProviders.length > 0) {
+        const error = new RuntimeWebProviderUnavailableError(
+          params.noFallbackCode,
+          unresolved.reason,
+          unavailableProviders,
+        );
+        params.onUnavailableProviders?.(error);
+        throw error;
+      }
       throw new Error(`[${params.noFallbackCode}] ${unresolved.reason}`);
     };
 
@@ -592,13 +650,20 @@ export async function resolveRuntimeWebProviderSelection<
       const unresolved = unresolvedWithoutFallback[0];
       if (unresolved) {
         const refKey = unresolved.refKey;
-        if (params.allowUnavailableExplicitProvider && refKey) {
-          unavailableProvider = {
+        const ref = unresolved.ref;
+        if (refKey && ref) {
+          const unavailable = {
             providerId: params.configuredProvider,
             path: unresolved.path,
+            ref,
             refKey,
             reason: unresolved.reason,
           };
+          if (params.allowUnavailableExplicitProvider) {
+            unavailableProvider = unavailable;
+          } else {
+            failUnresolvedNoFallback(unresolved);
+          }
         } else {
           failUnresolvedNoFallback(unresolved);
         }
@@ -607,6 +672,7 @@ export async function resolveRuntimeWebProviderSelection<
       if (!selectedProvider && unresolvedWithoutFallback.length > 0) {
         failUnresolvedNoFallback(
           expectDefined(unresolvedWithoutFallback[0], "unresolved without fallback entry at 0"),
+          unresolvedWithoutFallback,
         );
       }
 
@@ -667,5 +733,21 @@ export async function resolveRuntimeWebProviderSelection<
     });
   }
 
-  return unavailableProvider ? { unavailableProvider } : {};
+  const selectedSecretOwner =
+    selectedProvider &&
+    selectedPath &&
+    selectedResolution?.secretRef &&
+    selectedResolution.secretRefKey
+      ? {
+          providerId: selectedProvider,
+          path: selectedPath,
+          ref: selectedResolution.secretRef,
+          refKey: selectedResolution.secretRefKey,
+        }
+      : undefined;
+  const secretOwner = selectedSecretOwner ?? unavailableProvider;
+  return {
+    ...(secretOwner ? { secretOwner } : {}),
+    ...(unavailableProvider ? { unavailableProvider } : {}),
+  };
 }
