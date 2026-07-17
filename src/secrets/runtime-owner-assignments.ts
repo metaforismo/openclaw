@@ -1,4 +1,5 @@
 /** Resolves SecretRef assignments atomically by owning runtime surface. */
+import { isDeepStrictEqual } from "node:util";
 import { toErrorObject } from "../infra/errors.js";
 import { registerSecretValueForRedaction } from "../logging/secret-redaction-registry.js";
 import { secretRefKey } from "./ref-contract.js";
@@ -8,7 +9,7 @@ import {
   isSecretResolutionError,
 } from "./resolve-errors.js";
 import { resolveSecretRefValues, resolveSecretRefValuesSettledByProvider } from "./resolve.js";
-import type { DegradedSecretOwner } from "./runtime-degraded-state.js";
+import type { DegradedSecretOwner, SecretOwnerRefState } from "./runtime-degraded-state.js";
 import { associateSecretResolutionErrorOwners } from "./runtime-degraded-state.js";
 import {
   applyResolvedAssignments,
@@ -16,8 +17,41 @@ import {
   type ResolverContext,
   type SecretAssignment,
 } from "./runtime-shared.js";
+import {
+  getActiveSecretsRuntimeSnapshot,
+  hasSameSecretProviderDefinition,
+} from "./runtime-state.js";
 
 type SecretResolutionOptions = Parameters<typeof resolveSecretRefValues>[1];
+
+function classifyOwnerDegradationState(params: {
+  assignments: SecretAssignment[];
+  options: SecretResolutionOptions;
+}): "cold" | "stale" {
+  const active = getActiveSecretsRuntimeSnapshot();
+  const owner = params.assignments[0];
+  if (
+    !active ||
+    !owner ||
+    active.degradedOwners?.some(
+      (entry) => entry.ownerKind === owner.ownerKind && entry.ownerId === owner.ownerId,
+    )
+  ) {
+    return "cold";
+  }
+  const activeOwner = active.secretOwners?.find(
+    (entry) => entry.ownerKind === owner.ownerKind && entry.ownerId === owner.ownerId,
+  );
+  const refKeys = params.assignments.map((assignment) => secretRefKey(assignment.ref)).toSorted();
+  const providerDefinitionsMatch = params.assignments.every((assignment) =>
+    hasSameSecretProviderDefinition(assignment.ref, [active.sourceConfig, params.options.config]),
+  );
+  return activeOwner &&
+    isDeepStrictEqual(activeOwner.refKeys.toSorted(), refKeys) &&
+    providerDefinitionsMatch
+    ? "stale"
+    : "cold";
+}
 
 function registerResolvedValuesForRedaction(resolved: ReadonlyMap<string, unknown>): void {
   for (const value of resolved.values()) {
@@ -52,6 +86,22 @@ function groupAssignmentsByOwner(assignments: SecretAssignment[]): SecretAssignm
     groups.set(key, [assignment]);
   }
   return [...groups.values()];
+}
+
+/** Captures every typed owner/ref relationship for later reload classification. */
+export function listSecretAssignmentOwners(assignments: SecretAssignment[]): SecretOwnerRefState[] {
+  return groupAssignmentsByOwner(assignments).flatMap((ownerAssignments) => {
+    const owner = ownerAssignments[0];
+    return !owner || owner.ownerKind === "unknown"
+      ? []
+      : [
+          {
+            ownerKind: owner.ownerKind,
+            ownerId: owner.ownerId,
+            refKeys: ownerAssignments.map((assignment) => secretRefKey(assignment.ref)).toSorted(),
+          },
+        ];
+  });
 }
 
 function createDegradedOwner(assignments: SecretAssignment[], reason: string): DegradedSecretOwner {
@@ -110,6 +160,10 @@ async function resolveStrictAssignments(params: {
               assignments,
               failureMatched ? reason : "secret reload was not activated",
             ),
+            degradationState: classifyOwnerDegradationState({
+              assignments,
+              options: params.options,
+            }),
             failureMatched,
           },
         ];

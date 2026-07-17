@@ -3,9 +3,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.ts";
+import type { SecretRef } from "../config/types.secrets.js";
 import { redactSensitiveText } from "../logging/redact.js";
 import { resetSecretRedactionRegistryForTest } from "../logging/secret-redaction-registry.test-support.js";
 import { listSecretResolutionErrorOwners } from "./runtime-degraded-state.js";
+import { activateSecretsRuntimeSnapshotState } from "./runtime-state.js";
 import { asConfig, setupSecretsRuntimeSnapshotTestHooks } from "./runtime.test-support.ts";
 
 const EMPTY_LOADABLE_PLUGIN_ORIGINS = new Map();
@@ -519,6 +521,7 @@ describe("secrets runtime snapshot", () => {
           ownerId: "openai",
           paths: ["models.providers.openai.apiKey"],
           reason: "secret reload was not activated",
+          degradationState: "cold",
           failureMatched: false,
         }),
         expect.objectContaining({
@@ -526,10 +529,46 @@ describe("secrets runtime snapshot", () => {
           ownerId: "tts",
           paths: ["messages.tts.providers.elevenlabs.apiKey"],
           reason: "secret reference was not found",
+          degradationState: "cold",
           failureMatched: true,
         }),
       ]),
     );
+  });
+
+  it.each([
+    ["CURRENT_REF", "stale"],
+    ["CHANGED_REF", "cold"],
+  ] as const)("classifies unresolved reload ref %s", async (candidateId, expectedState) => {
+    const config = (ref: SecretRef) =>
+      asConfig({ messages: { tts: { providers: { elevenlabs: { apiKey: ref } } } } });
+    const ref = (id: string): SecretRef => ({ source: "env", provider: "default", id });
+    const active = await prepareSecretsRuntimeSnapshot({
+      config: config(ref("CURRENT_REF")),
+      env: { CURRENT_REF: "resolved" },
+      includeAuthStoreRefs: false,
+      loadablePluginOrigins: EMPTY_LOADABLE_PLUGIN_ORIGINS,
+    });
+    activateSecretsRuntimeSnapshotState({
+      snapshot: active,
+      refreshContext: null,
+      refreshHandler: null,
+    });
+
+    const error = await prepareSecretsRuntimeSnapshot({
+      config: config(ref(candidateId)),
+      env: {},
+      includeAuthStoreRefs: false,
+      loadablePluginOrigins: EMPTY_LOADABLE_PLUGIN_ORIGINS,
+    }).catch((failure: unknown) => failure);
+
+    expect(listSecretResolutionErrorOwners(error)).toEqual([
+      expect.objectContaining({
+        ownerKind: "capability",
+        ownerId: "tts",
+        degradationState: expectedState,
+      }),
+    ]);
   });
 
   it("isolates the TTS owner when its SecretRef is missing during cold startup", async () => {

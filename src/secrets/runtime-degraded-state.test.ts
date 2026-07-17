@@ -47,6 +47,7 @@ describe("runtime degraded SecretRef owners", () => {
       paths: ["models.providers.openai.apiKey"],
       refKeys: ["env:default:OPENAI_API_KEY"],
       reason: "secret provider failed",
+      degradationState: "stale" as const,
       failureMatched: true,
     };
     associateSecretResolutionErrorOwners(error, [owner]);

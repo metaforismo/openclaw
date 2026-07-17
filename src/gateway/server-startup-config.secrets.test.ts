@@ -44,9 +44,9 @@ type GatewayStartupSecretsRuntimeMock = {
 };
 
 type GatewayStartupLogMock = {
-  info: ReturnType<typeof vi.fn<(message: string, meta?: Record<string, unknown>) => void>>;
+  info: ReturnType<typeof vi.fn<(message: string) => void>>;
   warn: ReturnType<typeof vi.fn<(message: string, meta?: Record<string, unknown>) => void>>;
-  error: ReturnType<typeof vi.fn<(message: string, meta?: Record<string, unknown>) => void>>;
+  error: ReturnType<typeof vi.fn<(message: string) => void>>;
 };
 
 type GatewayStartupStateEmitterMock = ReturnType<
@@ -184,9 +184,9 @@ function runtimeSecretsActivatorOptionsForTest() {
 
 function mockLogSecretsForTest(): GatewayStartupLogMock {
   return {
-    info: vi.fn<(message: string, meta?: Record<string, unknown>) => void>(),
+    info: vi.fn<(message: string) => void>(),
     warn: vi.fn<(message: string, meta?: Record<string, unknown>) => void>(),
-    error: vi.fn<(message: string, meta?: Record<string, unknown>) => void>(),
+    error: vi.fn<(message: string) => void>(),
   };
 }
 
@@ -978,6 +978,7 @@ describe("gateway startup config secret preflight", () => {
         paths: ["models.providers.openai.apiKey"],
         refKeys: ["env:default:OPENAI_API_KEY"],
         reason: "secret reference was not found",
+        degradationState: "stale",
         failureMatched: true,
       },
     ]);

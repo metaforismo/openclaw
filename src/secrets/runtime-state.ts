@@ -31,6 +31,7 @@ import { isRecord } from "../utils.js";
 import {
   setActiveDegradedSecretOwners,
   type DegradedSecretOwner,
+  type SecretOwnerRefState,
 } from "./runtime-degraded-state.js";
 import type { SecretResolverWarning } from "./runtime-shared.js";
 import {
@@ -47,6 +48,7 @@ export type PreparedSecretsRuntimeSnapshot = {
   authStoreCredentialsRevision: number;
   warnings: SecretResolverWarning[];
   degradedOwners?: DegradedSecretOwner[];
+  secretOwners?: SecretOwnerRefState[];
   webTools: RuntimeWebToolsMetadata;
 };
 
@@ -140,6 +142,10 @@ function cloneSnapshot(snapshot: PreparedSecretsRuntimeSnapshot): PreparedSecret
       paths: [...owner.paths],
       refKeys: [...owner.refKeys],
       reason: owner.reason,
+    })),
+    secretOwners: (snapshot.secretOwners ?? []).map((owner) => ({
+      ...owner,
+      refKeys: [...owner.refKeys],
     })),
     webTools: structuredClone(snapshot.webTools),
   };
@@ -281,7 +287,10 @@ function mergeRollbackValue(previous: unknown, candidate: unknown, current: unkn
   return merged;
 }
 
-function hasSameSecretProviderDefinition(ref: SecretRef, configs: OpenClawConfig[]): boolean {
+export function hasSameSecretProviderDefinition(
+  ref: SecretRef,
+  configs: OpenClawConfig[],
+): boolean {
   const definition = configs[0]?.secrets?.providers?.[ref.provider];
   if (
     !configs.every((config) =>

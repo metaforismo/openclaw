@@ -68,6 +68,7 @@ vi.mock("./runtime-prepare.runtime.js", () => ({
 }));
 
 vi.mock("./runtime-owner-assignments.js", () => ({
+  listSecretAssignmentOwners: () => [],
   resolveAndApplySecretAssignments: async () => [],
 }));
 

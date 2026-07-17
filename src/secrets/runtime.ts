@@ -178,6 +178,7 @@ export async function prepareSecretsRuntimeSnapshot(params: {
       authStoreCredentialsRevision,
       warnings: [],
       degradedOwners: [],
+      secretOwners: [],
       webTools: createEmptyRuntimeWebToolsMetadata(),
     };
     setPreparedSecretsRuntimeSnapshotRefreshContext(snapshot, {
@@ -198,7 +199,8 @@ export async function prepareSecretsRuntimeSnapshot(params: {
     createResolverContext,
     resolveRuntimeWebTools,
   } = await loadRuntimePrepareHelpers();
-  const { resolveAndApplySecretAssignments } = await loadRuntimeOwnerAssignmentHelpers();
+  const { listSecretAssignmentOwners, resolveAndApplySecretAssignments } =
+    await loadRuntimeOwnerAssignmentHelpers();
   const manifestRegistry =
     params.manifestRegistry ?? params.pluginMetadataSnapshot?.manifestRegistry;
   const loadablePluginOrigins =
@@ -257,6 +259,7 @@ export async function prepareSecretsRuntimeSnapshot(params: {
           },
         })
       : [];
+  const secretOwners = listSecretAssignmentOwners(context.assignments);
 
   const webTools = includeConfigRefs
     ? await resolveRuntimeWebTools({
@@ -276,6 +279,7 @@ export async function prepareSecretsRuntimeSnapshot(params: {
     authStoreCredentialsRevision,
     warnings: context.warnings,
     degradedOwners: [...degradedOwners, ...webTools.degradedOwners],
+    secretOwners,
     webTools: webTools.metadata,
   };
   setPreparedSecretsRuntimeSnapshotRefreshContext(snapshot, {

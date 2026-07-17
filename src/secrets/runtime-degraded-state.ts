@@ -19,8 +19,12 @@ export type DegradedSecretOwner = {
   reason: string;
 };
 
+/** SecretRef identities resolved for one owner in an active runtime snapshot. */
+export type SecretOwnerRefState = Pick<DegradedSecretOwner, "ownerKind" | "ownerId" | "refKeys">;
+
 /** One owner from an atomic resolution attempt, including whether it caused the failure. */
 type SecretResolutionErrorOwner = DegradedSecretOwner & {
+  degradationState: "cold" | "stale";
   failureMatched: boolean;
 };
 
@@ -33,7 +37,6 @@ export type SecretDegradation = {
   reason: string;
   state: "cold" | "stale";
   retryHint: typeof SECRET_DEGRADATION_RETRY_HINT;
-  paths: string[];
 };
 
 const SECRET_SURFACE_UNAVAILABLE_ERROR_CODE = "SECRET_SURFACE_UNAVAILABLE";

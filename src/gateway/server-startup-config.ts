@@ -20,8 +20,8 @@ import type { ConfigFileSnapshot, OpenClawConfig } from "../config/types.opencla
 import { measureDiagnosticsTimelineSpan } from "../infra/diagnostics-timeline.js";
 import type { PluginManifestRegistry } from "../plugins/manifest-registry.js";
 import type { PluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot.js";
-import { classifySecretResolutionErrorDegradations } from "../secrets/runtime-degradation-classifier.js";
 import {
+  listSecretResolutionErrorOwners,
   SECRET_DEGRADATION_RETRY_HINT,
   type SecretDegradation,
 } from "../secrets/runtime-degraded-state.js";
@@ -52,9 +52,9 @@ import {
 } from "./startup-auth.js";
 
 type GatewayStartupLog = {
-  info: (message: string, meta?: Record<string, unknown>) => void;
+  info: (message: string) => void;
   warn: (message: string, meta?: Record<string, unknown>) => void;
-  error?: (message: string, meta?: Record<string, unknown>) => void;
+  error?: (message: string) => void;
 };
 
 type GatewaySecretsStateEventCode = "SECRETS_RELOADER_DEGRADED" | "SECRETS_RELOADER_RECOVERED";
@@ -116,6 +116,30 @@ function logSecretDegradation(log: GatewayStartupLog, degradation: SecretDegrada
       retryHint: degradation.retryHint,
     },
   );
+}
+
+function classifySecretResolutionErrorDegradations(error: unknown): SecretDegradation[] {
+  const owners = listSecretResolutionErrorOwners(error);
+  const degradations = owners.map<SecretDegradation>((owner) => ({
+    kind: owner.ownerKind,
+    id: owner.ownerId,
+    reason: owner.reason,
+    state: owner.degradationState,
+    retryHint: SECRET_DEGRADATION_RETRY_HINT,
+  }));
+  if (owners.some((owner) => owner.failureMatched)) {
+    return degradations;
+  }
+  return [
+    {
+      kind: "unknown",
+      id: "runtime",
+      reason: "secret reload failed",
+      state: getActiveSecretsRuntimeSnapshot() ? "stale" : "cold",
+      retryHint: SECRET_DEGRADATION_RETRY_HINT,
+    },
+    ...degradations,
+  ];
 }
 
 /** Config snapshot plus optional plugin metadata loaded before Gateway startup auth. */
@@ -291,7 +315,7 @@ export function createRuntimeSecretsActivator(params: {
       activationParams.reason !== "startup" &&
       (activationParams.activate || activationParams.publishFailureAsDegraded === true);
     if (publishDegradation) {
-      const degradations = classifySecretResolutionErrorDegradations({ error: err });
+      const degradations = classifySecretResolutionErrorDegradations(err);
       for (const degradation of degradations) {
         logSecretDegradation(params.logSecrets, degradation);
       }
