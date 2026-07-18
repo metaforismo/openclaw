@@ -155,7 +155,9 @@ describe("secrets runtime snapshot auth refresh failure", () => {
       });
       await writeSecrets(false);
 
-      const error = await refreshActiveProviderAuthRuntimeSnapshot().catch((cause) => cause);
+      const error = await refreshActiveProviderAuthRuntimeSnapshot().catch(
+        (cause: unknown) => cause,
+      );
       expect(listSecretResolutionErrorOwners(error)).toContainEqual(
         expect.objectContaining({
           ownerKind: "account",
