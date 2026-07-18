@@ -321,17 +321,18 @@ export function createRuntimeSecretsActivator(params: {
     activationParams: RuntimeSecretsActivationParams,
     eventConfig: OpenClawConfig,
   ): never => {
-    const details = String(err);
-    const publishDegradation =
-      activationParams.reason !== "startup" &&
+    const mayPublishReloadDegradation =
       (activationParams.activate || activationParams.publishFailureAsDegraded === true) &&
       (activationParams.canPublishFailureAsDegraded?.() ?? true);
-    if (publishDegradation) {
-      const degradations = classifySecretResolutionErrorDegradations(err);
-      if (degradations.length > 0) {
-        for (const degradation of degradations) {
-          logSecretDegradation(params.logSecrets, degradation);
-        }
+    const degradations = classifySecretResolutionErrorDegradations(err);
+    if (
+      degradations.length > 0 &&
+      (activationParams.reason === "startup" || mayPublishReloadDegradation)
+    ) {
+      for (const degradation of degradations) {
+        logSecretDegradation(params.logSecrets, degradation);
+      }
+      if (activationParams.reason !== "startup") {
         if (!secretsDegraded) {
           params.emitStateEvent(
             "SECRETS_RELOADER_DEGRADED",
@@ -343,7 +344,10 @@ export function createRuntimeSecretsActivator(params: {
       }
     }
     if (activationParams.reason === "startup") {
-      throw new Error(`Startup failed: required secrets are unavailable. ${details}`, {
+      if (degradations.length > 0) {
+        throw new Error("Startup failed: required secrets are unavailable.");
+      }
+      throw new Error(`Startup failed: required secrets are unavailable. ${String(err)}`, {
         cause: err,
       });
     }

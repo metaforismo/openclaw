@@ -3630,6 +3630,7 @@ describe("gateway Gmail hot reload handlers", () => {
     const firstRef = { source: "env" as const, provider: "default", id: "TTS_FIRST" };
     const secondRef = { source: "env" as const, provider: "default", id: "TTS_SECOND" };
     const thirdRef = { source: "env" as const, provider: "default", id: "TTS_THIRD" };
+    const fourthRef = { source: "env" as const, provider: "default", id: "TTS_FOURTH" };
     const sourceConfig = (ref: typeof firstRef): OpenClawConfig => ({
       gateway: { reload: { debounceMs: 0 } },
       messages: { tts: { providers: { elevenlabs: { apiKey: ref } } } },
@@ -3774,6 +3775,41 @@ describe("gateway Gmail hot reload handlers", () => {
         }),
       ).toBe("stale");
 
+      activateRuntimeSecrets.mockImplementationOnce(async (config: OpenClawConfig) => ({
+        sourceConfig: config,
+        config: { ...runtimeConfig, logging: { level: "debug" } },
+        authStores: [],
+        authStoreCredentialsRevision: getRuntimeAuthProfileStoreCredentialsRevision(),
+        warnings: [],
+        secretOwners: [
+          {
+            ownerKind: "capability" as const,
+            ownerId: "tts",
+            refKeys: ["env:default:TTS_THIRD"],
+          },
+        ],
+        webTools: createEmptyRuntimeWebToolsMetadata(),
+      }));
+      listener({
+        configPath: "/tmp/openclaw.json",
+        sourceConfig: sourceConfig(thirdRef),
+        runtimeConfig,
+        persistedHash: "changed-second-resolution",
+        revision: 2,
+        fingerprint: "same-runtime",
+        sourceFingerprint: "changed-second-resolution",
+        writtenAtMs: Date.now(),
+      });
+      await vi.runAllTimersAsync();
+
+      expect(getActiveSecretsRuntimeSnapshot()?.secretOwners).toEqual([
+        {
+          ownerKind: "capability",
+          ownerId: "tts",
+          refKeys: ["env:default:TTS_SECOND"],
+        },
+      ]);
+
       let releasePreparation = () => {};
       let markPreparationStarted: (() => void) | undefined;
       const preparationStarted = new Promise<void>((resolve) => {
@@ -3806,7 +3842,7 @@ describe("gateway Gmail hot reload handlers", () => {
         sourceConfig: nextSourceConfig,
         runtimeConfig,
         persistedHash: "superseded-source-owner",
-        revision: 2,
+        revision: 3,
         fingerprint: "same-runtime",
         sourceFingerprint: "superseded-source-owner",
         writtenAtMs: Date.now(),
@@ -3814,7 +3850,7 @@ describe("gateway Gmail hot reload handlers", () => {
       await vi.advanceTimersByTimeAsync(0);
       await preparationStarted;
 
-      const concurrentSourceConfig = sourceConfig(thirdRef);
+      const concurrentSourceConfig = sourceConfig(fourthRef);
       activateSecretsRuntimeSnapshot({
         sourceConfig: concurrentSourceConfig,
         config: runtimeConfig,
@@ -3825,7 +3861,7 @@ describe("gateway Gmail hot reload handlers", () => {
           {
             ownerKind: "capability",
             ownerId: "tts",
-            refKeys: ["env:default:TTS_THIRD"],
+            refKeys: ["env:default:TTS_FOURTH"],
           },
         ],
         webTools: createEmptyRuntimeWebToolsMetadata(),
@@ -3838,7 +3874,7 @@ describe("gateway Gmail hot reload handlers", () => {
         {
           ownerKind: "capability",
           ownerId: "tts",
-          refKeys: ["env:default:TTS_THIRD"],
+          refKeys: ["env:default:TTS_FOURTH"],
         },
       ]);
     } finally {

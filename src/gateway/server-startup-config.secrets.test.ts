@@ -645,25 +645,86 @@ describe("gateway startup config secret preflight", () => {
   });
 
   it("wraps startup secret activation failures without emitting reload state events", async () => {
-    const error = new Error('Environment variable "OPENAI_API_KEY" is missing or empty.');
+    const error = refResolutionError({
+      code: "SECRET_REF_NOT_FOUND",
+      source: "env",
+      provider: "default",
+      refId: "PRIVATE_STARTUP_AUTH_REF",
+      message: 'Environment variable "PRIVATE_STARTUP_AUTH_REF" is missing or empty.',
+    });
+    associateSecretResolutionErrorOwners(error, [
+      {
+        ownerKind: "gateway",
+        ownerId: "auth",
+        state: "unavailable",
+        paths: ["gateway.auth.token"],
+        refKeys: ["env:default:PRIVATE_STARTUP_AUTH_REF"],
+        reason: "secret reference was not found",
+        degradationState: "cold",
+        failureMatched: true,
+      },
+    ]);
     const prepareRuntimeSecretsSnapshot = vi.fn(async () => {
       throw error;
     });
     const emitStateEvent = vi.fn();
+    const logSecrets = mockLogSecretsForTest();
     const activateRuntimeSecrets = runtimeSecretsActivatorForTest({
       emitStateEvent,
+      logSecrets,
       prepareRuntimeSecretsSnapshot,
     });
 
-    await expect(
-      activateRuntimeSecrets(gatewayTokenConfig({}), {
-        reason: "startup",
-        activate: false,
-      }),
-    ).rejects.toThrow(
-      'Startup failed: required secrets are unavailable. Error: Environment variable "OPENAI_API_KEY" is missing or empty.',
+    const startupFailure = await activateRuntimeSecrets(gatewayTokenConfig({}), {
+      reason: "startup",
+      activate: false,
+    }).then(
+      () => null,
+      (caught: unknown) => caught,
     );
+    expect(startupFailure).toBeInstanceOf(Error);
+    expect(String(startupFailure)).toBe("Error: Startup failed: required secrets are unavailable.");
+    expect((startupFailure as Error).cause).toBeUndefined();
+    expect(String(startupFailure)).not.toContain("PRIVATE_STARTUP_AUTH_REF");
+    expect(logSecrets.warn).toHaveBeenCalledWith(
+      "[SECRETS_DEGRADED] cold gateway:auth: secret reference was not found. " +
+        "Retry: openclaw secrets reload.",
+      {
+        event: "secrets.degraded",
+        ownerKind: "gateway",
+        ownerId: "auth",
+        reason: "secret reference was not found",
+        state: "cold",
+        retryHint: "openclaw secrets reload",
+      },
+    );
+    expect(JSON.stringify(logSecrets.warn.mock.calls)).not.toContain("PRIVATE_STARTUP_AUTH_REF");
     expect(emitStateEvent).not.toHaveBeenCalled();
+  });
+
+  it("preserves diagnostics for unclassified startup activation failures", async () => {
+    const error = new Error("secret provider transport failed");
+    const logSecrets = mockLogSecretsForTest();
+    const activateRuntimeSecrets = runtimeSecretsActivatorForTest({
+      logSecrets,
+      prepareRuntimeSecretsSnapshot: vi.fn(async () => {
+        throw error;
+      }),
+    });
+
+    const startupFailure = await activateRuntimeSecrets(gatewayTokenConfig({}), {
+      reason: "startup",
+      activate: false,
+    }).then(
+      () => null,
+      (caught: unknown) => caught,
+    );
+    expect(String(startupFailure)).toContain("secret provider transport failed");
+    expect((startupFailure as Error).cause).toBe(error);
+    expect(logSecrets.warn).not.toHaveBeenCalledWith(
+      expect.stringContaining("SECRETS_DEGRADED"),
+      expect.anything(),
+    );
   });
 
   it("allows cold startup snapshots with isolated SecretRef owners", async () => {

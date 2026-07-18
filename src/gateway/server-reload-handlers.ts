@@ -1891,6 +1891,9 @@ export function startManagedGatewayConfigReloader(
       if (!transactionOwnership.isCurrent()) {
         throw new GatewayConfigReloadSupersededError();
       }
+      if (!isDeepStrictEqual(preparedSecrets.config, nextConfig)) {
+        throw new GatewayConfigReloadSupersededError();
+      }
       if (!metadata || !previousRuntimeSourceConfig) {
         throw new GatewayConfigReloadSupersededError();
       }
