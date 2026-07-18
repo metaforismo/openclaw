@@ -3515,7 +3515,7 @@ describe("gateway Gmail hot reload handlers", () => {
       gateway: { reload: { debounceMs: 0 } },
       messages: { visibleReplies: "message_tool" },
     };
-    const activateRuntimeSecrets = vi.fn(async (config: OpenClawConfig) => ({
+    const activateRuntimeSecrets = vi.fn(async (config: OpenClawConfig, _params: unknown) => ({
       sourceConfig: config,
       config,
       authStores: [],
@@ -3659,7 +3659,7 @@ describe("gateway Gmail hot reload handlers", () => {
     const writeListenerRef: { current: ((event: ConfigWriteNotification) => void) | null } = {
       current: null,
     };
-    const activateRuntimeSecrets = vi.fn(async (config: OpenClawConfig) => ({
+    const activateRuntimeSecrets = vi.fn(async (config: OpenClawConfig, _params: unknown) => ({
       sourceConfig: config,
       config: runtimeConfig,
       authStores: [],
@@ -3725,8 +3725,8 @@ describe("gateway Gmail hot reload handlers", () => {
       startChannel: vi.fn(async () => {}),
       stopChannel: vi.fn(async () => {}),
       reloadPlugins: vi.fn(async () => ({
-        restartChannels: new Set(),
-        activeChannels: new Set(),
+        restartChannels: new Set<ChannelKind>(),
+        activeChannels: new Set<ChannelKind>(),
       })),
       logHooks: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       logChannels: { info: vi.fn(), error: vi.fn() },
