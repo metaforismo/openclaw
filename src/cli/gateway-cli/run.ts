@@ -46,6 +46,10 @@ import {
   type GatewayBootLifecycleCompletion,
 } from "../../infra/gateway-boot-lifecycle.js";
 import { GatewayLockError } from "../../infra/gateway-lock.js";
+import {
+  findVerifiedGatewayListenerPidsOnPortSync,
+  formatGatewayPidList,
+} from "../../infra/gateway-processes.js";
 import { parseStrictPositiveInteger } from "../../infra/parse-finite-number.js";
 import type { RespawnSupervisor } from "../../infra/supervisor-markers.js";
 import { setConsoleSubsystemFilter, setConsoleTimestampPrefix } from "../../logging/console.js";
@@ -57,6 +61,10 @@ import { formatCliCommand } from "../command-format.js";
 import { formatInvalidConfigPort, formatInvalidPortOption } from "../error-format.js";
 import { withProgress } from "../progress.js";
 import { parsePort } from "../shared/parse-port.js";
+import {
+  isTerminalInteractive,
+  NON_INTERACTIVE_GATEWAY_RUN_FORCE_MESSAGE,
+} from "../terminal-interactivity.js";
 import {
   enforceGatewayRunFutureConfigGuard,
   isGatewayRunFutureConfigAllowed,
@@ -771,12 +779,37 @@ export async function runGatewayCommand(opts: GatewayRunOpts, hooks: GatewayRunR
     }
   }
   if (opts.force) {
+    const describeNonInteractiveGatewayOwner = () => {
+      const gatewayPids = findVerifiedGatewayListenerPidsOnPortSync(port);
+      if (gatewayPids.length === 0) {
+        return undefined;
+      }
+      return `${NON_INTERACTIVE_GATEWAY_RUN_FORCE_MESSAGE} Existing gateway listener pid${gatewayPids.length === 1 ? "" : "s"}: ${formatGatewayPidList(gatewayPids)}.`;
+    };
+    if (!isTerminalInteractive()) {
+      const refusal = describeNonInteractiveGatewayOwner();
+      if (refusal) {
+        defaultRuntime.error(refusal);
+        defaultRuntime.exit(1);
+        return;
+      }
+    }
     try {
       const { forceFreePortAndWait, waitForPortBindable } = await import("../ports.js");
       const { killed, waitedMs, escalatedToSigkill } = await forceFreePortAndWait(port, {
         timeoutMs: 2000,
         intervalMs: 100,
         sigtermTimeoutMs: 700,
+        ...(isTerminalInteractive()
+          ? {}
+          : {
+              beforeSignal: () => {
+                const refusal = describeNonInteractiveGatewayOwner();
+                if (refusal) {
+                  throw new Error(refusal);
+                }
+              },
+            }),
       });
       if (killed.length === 0) {
         // Nothing was freed; keep the no-op out of normal startup output.
