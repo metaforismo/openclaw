@@ -16,6 +16,7 @@ public struct OpenClawChatWindowShell: View {
     @State private var isConfirmingClearHistory = false
     @State private var isPresentingSessions = false
     @State private var isRenamingSession = false
+    @State private var isPresentingNewSessionOptions = false
     @State private var renameSessionKey: String?
     @State private var renameText = ""
     private let userAccent: Color?
@@ -283,6 +284,12 @@ public struct OpenClawChatWindowShell: View {
             .keyboardShortcut("n", modifiers: [.command])
 
             Button {
+                self.isPresentingNewSessionOptions = true
+            } label: {
+                chatWindowActionLabel("New Session Options…", systemImage: "slider.horizontal.3")
+            }
+
+            Button {
                 self.viewModel.refresh()
                 self.viewModel.refreshSessions(limit: 200)
             } label: {
@@ -405,6 +412,11 @@ public struct OpenClawChatWindowShell: View {
             }
         } label: {
             chatWindowActionLabel("Session", systemImage: "ellipsis.circle")
+        }
+        .popover(isPresented: self.$isPresentingNewSessionOptions) {
+            ChatNewSessionOptionsPopover(viewModel: self.viewModel) {
+                self.isPresentingNewSessionOptions = false
+            }
         }
         .menuIndicator(.hidden)
         .help("Session actions")
