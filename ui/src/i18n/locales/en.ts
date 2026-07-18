@@ -1871,6 +1871,7 @@ export const en: TranslationMap = {
     title: "OpenClaw",
     subtitle: "Your system setup guide",
     exitSetup: "Exit setup",
+    hatchDraft: "Wake up, my friend!",
     placeholder: "Message OpenClaw…",
     sensitivePlaceholder: "Enter sensitive value…",
     sensitiveReply: "Sensitive reply sent",
