@@ -569,13 +569,16 @@ export async function getStatusSummary(
     channelSummary,
     queuedSystemEvents,
     degradedSecretOwners: listActiveDegradedSecretOwners().map(
-      ({ ownerKind, ownerId, state, paths: ownerPaths, reason }) => ({
-        ownerKind,
-        ownerId,
-        state,
-        paths: ownerPaths,
-        reason: String(redactSecretDegradationReason(reason)),
-      }),
+      ({ ownerKind, ownerId, state, paths: ownerPaths, reason }) => {
+        const redactedReason: string = redactSecretDegradationReason(reason);
+        return {
+          ownerKind,
+          ownerId,
+          state,
+          paths: ownerPaths,
+          reason: redactedReason,
+        };
+      },
     ),
     tasks,
     taskAudit,
