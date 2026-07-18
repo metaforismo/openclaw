@@ -83,7 +83,10 @@ import {
   type SharedGatewaySessionGenerationOwnership,
   type SharedGatewaySessionGenerationState,
 } from "./server-shared-auth-generation.js";
-import type { ActivateRuntimeSecrets } from "./server-startup-config.js";
+import {
+  publishRuntimeSecretsRecovery,
+  type ActivateRuntimeSecrets,
+} from "./server-startup-config.js";
 import { resolveHookClientIpConfig } from "./server/hook-client-ip-config.js";
 import type { HookClientIpConfig } from "./server/hooks-request-handler.js";
 
@@ -1885,7 +1888,7 @@ export function startManagedGatewayConfigReloader(
           publishFailureAsDegraded: true,
           canPublishFailureAsDegraded: transactionOwnership.isCurrent,
           ...(transactionOwnership.runtimeEnv ? { env: transactionOwnership.runtimeEnv.env } : {}),
-          includeAuthStoreRefs: transactionOwnership.runtimeRefresh?.includeAuthStoreRefs,
+          includeAuthStoreRefs: true,
         },
       );
       if (!transactionOwnership.isCurrent()) {
@@ -1900,6 +1903,7 @@ export function startManagedGatewayConfigReloader(
       const sourceSnapshotPublished = setSecretsRuntimeSourceSnapshotIfCurrent({
         expectedSecretsRevision: previousSecretsRevision,
         expectedRuntimeConfigRevision: metadata.revision,
+        expectedAuthStoreCredentialsRevision: preparedSecrets.authStoreCredentialsRevision,
         runtimeSourceConfig: sourceConfig,
         secretsSourceConfig: preparedSecrets.sourceConfig,
         secretOwners: preparedSecrets.secretOwners,
@@ -1915,6 +1919,7 @@ export function startManagedGatewayConfigReloader(
           !setSecretsRuntimeSourceSnapshotIfCurrent({
             expectedSecretsRevision: committedSecretsRevision,
             expectedRuntimeConfigRevision: committedMetadata.revision,
+            expectedAuthStoreCredentialsRevision: preparedSecrets.authStoreCredentialsRevision,
             runtimeSourceConfig: previousRuntimeSourceConfig,
             secretsSourceConfig: previousSecretsSourceConfig ?? previousRuntimeSourceConfig,
             secretOwners: previousSecretOwners,
@@ -1927,6 +1932,7 @@ export function startManagedGatewayConfigReloader(
         await rollbackPublishedSource();
         throw new GatewayConfigReloadSupersededError();
       }
+      publishRuntimeSecretsRecovery(params.activateRuntimeSecrets, preparedSecrets.config);
       return rollbackPublishedSource;
     },
     onNoopConfigCommit: async (plan, nextConfig, transactionOwnership, sourceConfig) => {

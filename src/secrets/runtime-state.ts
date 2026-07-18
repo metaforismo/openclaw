@@ -970,11 +970,15 @@ export function getActiveSecretsRuntimeSnapshotRevision(): number {
 export function setSecretsRuntimeSourceSnapshotIfCurrent(params: {
   expectedSecretsRevision: number;
   expectedRuntimeConfigRevision: number;
+  expectedAuthStoreCredentialsRevision: number;
   runtimeSourceConfig: OpenClawConfig;
   secretsSourceConfig: OpenClawConfig;
   secretOwners: PreparedSecretsRuntimeSnapshot["secretOwners"];
 }): boolean {
-  if (activeSnapshotRevision !== params.expectedSecretsRevision) {
+  if (
+    activeSnapshotRevision !== params.expectedSecretsRevision ||
+    getRuntimeAuthProfileStoreCredentialsRevision() !== params.expectedAuthStoreCredentialsRevision
+  ) {
     return false;
   }
   const nextRuntimeSourceConfig = structuredClone(params.runtimeSourceConfig);

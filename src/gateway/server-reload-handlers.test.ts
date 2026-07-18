@@ -3759,6 +3759,11 @@ describe("gateway Gmail hot reload handlers", () => {
       });
       await vi.runAllTimersAsync();
 
+      expect(activateRuntimeSecrets.mock.calls[0]?.[1]).toMatchObject({
+        activate: false,
+        includeAuthStoreRefs: true,
+        publishFailureAsDegraded: true,
+      });
       expect(getActiveSecretsRuntimeSnapshot()?.secretOwners).toEqual([
         {
           ownerKind: "capability",

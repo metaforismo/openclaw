@@ -25,6 +25,7 @@ import type { PreparedSecretsRuntimeSnapshot, SecretResolverWarning } from "../s
 import {
   createRuntimeSecretsActivator,
   prepareGatewayStartupConfig,
+  publishRuntimeSecretsRecovery,
 } from "./server-startup-config.js";
 import { buildTestConfigSnapshot } from "./test-helpers.config-snapshots.js";
 
@@ -1258,6 +1259,28 @@ describe("gateway startup config secret preflight", () => {
     expect(logSecrets.info).toHaveBeenCalledWith(
       "[SECRETS_RELOADER_RECOVERED] Secret resolution recovered; runtime remained on last-known-good during the outage.",
     );
+
+    shouldResolve = false;
+    await expect(
+      activateRuntimeSecrets(sourceConfig, {
+        reason: "reload",
+        activate: false,
+        publishFailureAsDegraded: true,
+      }),
+    ).rejects.toThrow(missingSecretError.message);
+    shouldResolve = true;
+    const sourceOnly = await activateRuntimeSecrets(sourceConfig, {
+      reason: "reload",
+      activate: false,
+      publishFailureAsDegraded: true,
+    });
+    publishRuntimeSecretsRecovery(activateRuntimeSecrets, sourceOnly.config);
+    expect(emitStateEvent.mock.calls.map((call) => call[0])).toEqual([
+      "SECRETS_RELOADER_DEGRADED",
+      "SECRETS_RELOADER_RECOVERED",
+      "SECRETS_RELOADER_DEGRADED",
+      "SECRETS_RELOADER_RECOVERED",
+    ]);
   });
 
   it.each(KNOWN_WEAK_GATEWAY_TOKEN_PLACEHOLDERS)(

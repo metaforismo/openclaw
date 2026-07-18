@@ -393,6 +393,7 @@ describe("secrets runtime snapshot", () => {
       }),
       env: {},
       includeAuthStoreRefs: false,
+      allowUnavailableSecretOwners: true,
       loadablePluginOrigins: EMPTY_LOADABLE_PLUGIN_ORIGINS,
     });
 
@@ -991,6 +992,7 @@ describe("secrets runtime snapshot", () => {
       }),
       env: {},
       includeAuthStoreRefs: false,
+      allowUnavailableSecretOwners: true,
       loadablePluginOrigins: EMPTY_LOADABLE_PLUGIN_ORIGINS,
     }).catch((failure: unknown) => failure);
 
@@ -1063,22 +1065,32 @@ describe("secrets runtime snapshot", () => {
   });
 
   it("still fails required gateway auth SecretRefs when env is missing", async () => {
-    await expect(
-      prepareSecretsRuntimeSnapshot({
-        config: asConfig({
-          gateway: {
-            auth: {
-              mode: "token",
-              token: { source: "env", provider: "default", id: "GATEWAY_TOKEN_REF" },
-            },
+    const error = await prepareSecretsRuntimeSnapshot({
+      config: asConfig({
+        gateway: {
+          auth: {
+            mode: "token",
+            token: { source: "env", provider: "default", id: "GATEWAY_TOKEN_REF" },
           },
-        }),
-        env: {},
-        includeAuthStoreRefs: false,
-        allowUnavailableSecretOwners: true,
-        loadablePluginOrigins: EMPTY_LOADABLE_PLUGIN_ORIGINS,
+        },
       }),
-    ).rejects.toThrow('Environment variable "GATEWAY_TOKEN_REF" is missing or empty.');
+      env: {},
+      includeAuthStoreRefs: false,
+      allowUnavailableSecretOwners: true,
+      loadablePluginOrigins: EMPTY_LOADABLE_PLUGIN_ORIGINS,
+    }).catch((failure: unknown) => failure);
+
+    expect(String(error)).toContain(
+      'Environment variable "GATEWAY_TOKEN_REF" is missing or empty.',
+    );
+    expect(listSecretResolutionErrorOwners(error)).toEqual([
+      expect.objectContaining({
+        ownerKind: "gateway",
+        ownerId: "ingress-auth",
+        degradationState: "cold",
+        failureMatched: true,
+      }),
+    ]);
   });
 
   it("isolates an unavailable model provider without applying another credential source", async () => {

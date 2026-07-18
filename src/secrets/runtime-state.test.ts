@@ -130,6 +130,7 @@ describe("secrets runtime state", () => {
       setSecretsRuntimeSourceSnapshotIfCurrent({
         expectedSecretsRevision: getActiveSecretsRuntimeSnapshotRevision(),
         expectedRuntimeConfigRevision: metadata.revision,
+        expectedAuthStoreCredentialsRevision: getRuntimeAuthProfileStoreCredentialsRevision(),
         runtimeSourceConfig: rawSourceConfig,
         secretsSourceConfig,
         secretOwners: nextSecretOwners,
@@ -140,6 +141,37 @@ describe("secrets runtime state", () => {
     expect(getActiveSecretsRuntimeSnapshot()?.sourceConfig).toEqual(secretsSourceConfig);
     expect(getActiveSecretsRuntimeSnapshot()?.config).toEqual(snapshot.config);
     expect(getActiveSecretsRuntimeSnapshot()?.secretOwners).toEqual(nextSecretOwners);
+
+    const staleCredentialsRevision = getRuntimeAuthProfileStoreCredentialsRevision();
+    setRuntimeAuthProfileStoreSnapshot(
+      {
+        version: 1,
+        profiles: {
+          "openai:source-cas": {
+            type: "api_key",
+            provider: "openai",
+            key: "newer-runtime-key",
+          },
+        },
+      },
+      "/tmp/openclaw-source-cas",
+    );
+    const committedMetadata = getRuntimeConfigSnapshotMetadata();
+    if (!committedMetadata) {
+      throw new Error("expected committed runtime config metadata");
+    }
+    expect(
+      setSecretsRuntimeSourceSnapshotIfCurrent({
+        expectedSecretsRevision: getActiveSecretsRuntimeSnapshotRevision(),
+        expectedRuntimeConfigRevision: committedMetadata.revision,
+        expectedAuthStoreCredentialsRevision: staleCredentialsRevision,
+        runtimeSourceConfig: { gateway: { port: 19_031 } },
+        secretsSourceConfig,
+        secretOwners: [],
+      }),
+    ).toBe(false);
+    expect(getActiveSecretsRuntimeSnapshot()?.secretOwners).toEqual(nextSecretOwners);
+    clearRuntimeAuthProfileStoreSnapshots();
   });
 
   it("preserves live auth bookkeeping when prepared credentials activate", () => {

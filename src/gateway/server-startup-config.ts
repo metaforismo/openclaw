@@ -99,6 +99,19 @@ export type ActivateRuntimeSecrets = ((
   ) => Promise<PreparedRuntimeSecretsSnapshot | null>;
 };
 
+const runtimeSecretsRecoveryPublishers = new WeakMap<
+  ActivateRuntimeSecrets,
+  (config: OpenClawConfig) => void
+>();
+
+/** Publishes recovery after a prepared source-only snapshot wins its commit CAS. */
+export function publishRuntimeSecretsRecovery(
+  activateRuntimeSecrets: ActivateRuntimeSecrets,
+  config: OpenClawConfig,
+): void {
+  runtimeSecretsRecoveryPublishers.get(activateRuntimeSecrets)?.(config);
+}
+
 type GatewayStartupConfigOverrides = {
   auth?: GatewayAuthConfig;
   tailscale?: GatewayTailscaleConfig;
@@ -270,6 +283,17 @@ export function createRuntimeSecretsActivator(params: {
     return (await loadSecretsRuntime()).activateSecretsRuntimeSnapshot;
   };
 
+  const publishRecovery = (config: OpenClawConfig) => {
+    if (!secretsDegraded) {
+      return;
+    }
+    const recoveredMessage =
+      "Secret resolution recovered; runtime remained on last-known-good during the outage.";
+    params.logSecrets.info(`[SECRETS_RELOADER_RECOVERED] ${recoveredMessage}`);
+    params.emitStateEvent("SECRETS_RELOADER_RECOVERED", recoveredMessage, config);
+    secretsDegraded = false;
+  };
+
   const finishPreparedSnapshot = async (
     prepared: PreparedRuntimeSecretsSnapshot,
     activationParams: RuntimeSecretsActivationParams,
@@ -307,11 +331,7 @@ export function createRuntimeSecretsActivator(params: {
       }
     }
     if (activationParams.activate && secretsDegraded) {
-      const recoveredMessage =
-        "Secret resolution recovered; runtime remained on last-known-good during the outage.";
-      params.logSecrets.info(`[SECRETS_RELOADER_RECOVERED] ${recoveredMessage}`);
-      params.emitStateEvent("SECRETS_RELOADER_RECOVERED", recoveredMessage, prepared.config);
-      secretsDegraded = false;
+      publishRecovery(prepared.config);
     }
     return prepared;
   };
@@ -502,6 +522,8 @@ export function createRuntimeSecretsActivator(params: {
       return activated;
     });
   };
+
+  runtimeSecretsRecoveryPublishers.set(activateRuntimeSecrets, publishRecovery);
 
   return activateRuntimeSecrets;
 }
