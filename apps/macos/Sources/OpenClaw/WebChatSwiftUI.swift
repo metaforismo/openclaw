@@ -9,6 +9,7 @@ import SwiftUI
 
 private let webChatSwiftLogger = Logger(subsystem: "ai.openclaw", category: "WebChatSwiftUI")
 private let webChatThinkingLevelDefaultsKey = "openclaw.webchat.thinkingLevel"
+private let webChatVerboseLevelDefaultsKey = "openclaw.webchat.verboseLevel"
 
 private enum WebChatSwiftUILayout {
     static let windowSize = NSSize(width: 960, height: 700)
@@ -238,6 +239,7 @@ struct MacGatewayChatTransport: OpenClawChatTransport {
             agentID: agentID,
             model: patch.model,
             thinkingLevel: patch.thinkingLevel,
+            fastMode: patch.fastMode,
             verboseLevel: patch.verboseLevel)
     }
 
@@ -829,11 +831,19 @@ final class WebChatSwiftUIWindowController {
             transcriptCache: transcriptCache,
             outbox: outbox,
             initialThinkingLevel: Self.persistedThinkingLevel(),
+            initialVerboseLevel: Self.persistedVerboseLevel(),
             onSessionChanged: { key in
                 sessionKeyRelay.onChange?(key)
             },
-            onThinkingLevelChanged: { level in
-                UserDefaults.standard.set(level, forKey: webChatThinkingLevelDefaultsKey)
+            onThinkingPreferenceChanged: { level in
+                if let level {
+                    UserDefaults.standard.set(level, forKey: webChatThinkingLevelDefaultsKey)
+                } else {
+                    UserDefaults.standard.removeObject(forKey: webChatThinkingLevelDefaultsKey)
+                }
+            },
+            onVerboseLevelChanged: { level in
+                UserDefaults.standard.set(level, forKey: webChatVerboseLevelDefaultsKey)
             })
         let explicitAgentID = WebChatRoute.normalizedAgentID(explicitAgentID)
         Task { @MainActor [weak vm] in
@@ -998,6 +1008,13 @@ final class WebChatSwiftUIWindowController {
             return nil
         }
         return stored
+    }
+
+    static func persistedVerboseLevel(defaults: UserDefaults = .standard) -> String? {
+        let stored = defaults.string(forKey: webChatVerboseLevelDefaultsKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return OpenClawChatViewModel.verboseLevelOptions.contains(stored ?? "") ? stored : nil
     }
 
     static func effectiveAgentID(
