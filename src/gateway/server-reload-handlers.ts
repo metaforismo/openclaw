@@ -1879,6 +1879,7 @@ export function startManagedGatewayConfigReloader(
       const previousSecretsSnapshot = getActiveSecretsRuntimeSnapshot();
       const previousSecretsSourceConfig = previousSecretsSnapshot?.sourceConfig;
       const previousSecretOwners = previousSecretsSnapshot?.secretOwners;
+      const previousDegradedOwners = previousSecretsSnapshot?.degradedOwners;
       const previousSecretsRevision = getActiveSecretsRuntimeSnapshotRevision();
       const preparedSecrets = await params.activateRuntimeSecrets(
         prepareRuntimeCandidate(nextConfig, sourceConfig, transactionOwnership),
@@ -1907,6 +1908,7 @@ export function startManagedGatewayConfigReloader(
         runtimeSourceConfig: sourceConfig,
         secretsSourceConfig: preparedSecrets.sourceConfig,
         secretOwners: preparedSecrets.secretOwners,
+        degradedOwners: preparedSecrets.degradedOwners,
       });
       if (!sourceSnapshotPublished) {
         throw new GatewayConfigReloadSupersededError();
@@ -1923,6 +1925,7 @@ export function startManagedGatewayConfigReloader(
             runtimeSourceConfig: previousRuntimeSourceConfig,
             secretsSourceConfig: previousSecretsSourceConfig ?? previousRuntimeSourceConfig,
             secretOwners: previousSecretOwners,
+            degradedOwners: previousDegradedOwners,
           })
         ) {
           throw new GatewayConfigReloadSupersededError();

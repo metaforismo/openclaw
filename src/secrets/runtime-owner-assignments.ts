@@ -281,6 +281,28 @@ export async function resolveAndApplySecretAssignments(params: {
       }
     }
 
+    const readyAssignments = pendingOwners
+      .filter(
+        (assignments) =>
+          !failedOwners.has(assignments) &&
+          assignments.every((assignment) => resolution.resolved.has(secretRefKey(assignment.ref))),
+      )
+      .flat();
+    if (readyAssignments.length > 0) {
+      // Validate the whole ready set so owners sharing one invalid ref are all reported.
+      // Failure association filters by validated owner keys; unrelated owners stay healthy.
+      try {
+        applyResolvedAssignments({ assignments: readyAssignments, resolved: resolution.resolved });
+      } catch (error) {
+        associateAssignmentFailureOwners({
+          assignments: readyAssignments,
+          error,
+          config: params.options.config,
+        });
+        throw error;
+      }
+    }
+
     const nextPendingOwners: SecretAssignment[][] = [];
     for (const assignments of pendingOwners) {
       const failureReason = failedOwners.get(assignments);
@@ -298,16 +320,6 @@ export async function resolveAndApplySecretAssignments(params: {
       if (
         assignments.every((assignment) => resolution.resolved.has(secretRefKey(assignment.ref)))
       ) {
-        try {
-          applyResolvedAssignments({ assignments, resolved: resolution.resolved });
-        } catch (error) {
-          associateAssignmentFailureOwners({
-            assignments,
-            error,
-            config: params.options.config,
-          });
-          throw error;
-        }
         continue;
       }
       nextPendingOwners.push(assignments);

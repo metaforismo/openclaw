@@ -387,8 +387,18 @@ describe("gateway aux handlers", () => {
       canonicalConfig,
     ]);
     expect(activateRuntimeSecrets.mock.calls.map(([, activation]) => activation)).toEqual([
-      { reason: "reload", activate: false, publishFailureAsDegraded: true },
-      { reason: "reload", activate: false, publishFailureAsDegraded: true },
+      {
+        reason: "reload",
+        activate: false,
+        publishFailureAsDegraded: true,
+        canPublishFailureAsDegraded: expect.any(Function),
+      },
+      {
+        reason: "reload",
+        activate: false,
+        publishFailureAsDegraded: true,
+        canPublishFailureAsDegraded: expect.any(Function),
+      },
     ]);
     expect(activatePreparedSnapshotIfCurrent).toHaveBeenCalledTimes(2);
     expect(getActiveSecretsRuntimeSnapshot()?.sourceConfig).toEqual(canonicalConfig);

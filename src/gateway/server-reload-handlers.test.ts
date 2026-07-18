@@ -40,6 +40,7 @@ import {
   tryBeginGatewaySuspendAdmission,
 } from "../process/gateway-work-admission.js";
 import { CommandLane } from "../process/lanes.js";
+import { listActiveDegradedSecretOwners } from "../secrets/runtime-degraded-state.js";
 import { createEmptyRuntimeWebToolsMetadata } from "../secrets/runtime-fast-path.js";
 import { classifySecretOwnerDegradationState } from "../secrets/runtime-owner-assignments.js";
 import {
@@ -3647,6 +3648,16 @@ describe("gateway Gmail hot reload handlers", () => {
       authStores: [],
       authStoreCredentialsRevision: getRuntimeAuthProfileStoreCredentialsRevision(),
       warnings: [],
+      degradedOwners: [
+        {
+          ownerKind: "capability",
+          ownerId: "tts",
+          state: "unavailable",
+          paths: ["messages.tts.providers.elevenlabs.apiKey"],
+          refKeys: ["env:default:TTS_FIRST"],
+          reason: "secret reference was not found",
+        },
+      ],
       secretOwners: [
         {
           ownerKind: "capability",
@@ -3764,6 +3775,7 @@ describe("gateway Gmail hot reload handlers", () => {
         includeAuthStoreRefs: true,
         publishFailureAsDegraded: true,
       });
+      expect(listActiveDegradedSecretOwners()).toEqual([]);
       expect(getActiveSecretsRuntimeSnapshot()?.secretOwners).toEqual([
         {
           ownerKind: "capability",

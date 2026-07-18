@@ -1012,7 +1012,7 @@ describe("secrets runtime snapshot", () => {
     ]);
   });
 
-  it("reports every owner sharing an invalid resolved value", async () => {
+  it("reports every cold-start owner sharing an invalid resolved value", async () => {
     if (process.platform === "win32") {
       return;
     }
@@ -1040,13 +1040,24 @@ describe("secrets runtime snapshot", () => {
         messages: {
           tts: { providers: { elevenlabs: { apiKey: sharedRef } } },
         },
+        skills: {
+          entries: {
+            healthy: {
+              apiKey: { source: "env", provider: "default", id: "HEALTHY_SKILL_KEY" },
+            },
+          },
+        },
       }),
+      env: { HEALTHY_SKILL_KEY: "healthy-skill-key" },
       includeAuthStoreRefs: false,
+      allowUnavailableSecretOwners: true,
       loadablePluginOrigins: EMPTY_LOADABLE_PLUGIN_ORIGINS,
     }).catch((failure: unknown) => failure);
 
     expect(error).toBeInstanceOf(Error);
-    expect(listSecretResolutionErrorOwners(error)).toEqual(
+    const owners = listSecretResolutionErrorOwners(error);
+    expect(owners).toHaveLength(2);
+    expect(owners).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           ownerKind: "provider",
@@ -1062,6 +1073,7 @@ describe("secrets runtime snapshot", () => {
         }),
       ]),
     );
+    expect(owners).not.toContainEqual(expect.objectContaining({ ownerId: "skill:healthy" }));
   });
 
   it("still fails required gateway auth SecretRefs when env is missing", async () => {

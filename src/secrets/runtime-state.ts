@@ -974,6 +974,7 @@ export function setSecretsRuntimeSourceSnapshotIfCurrent(params: {
   runtimeSourceConfig: OpenClawConfig;
   secretsSourceConfig: OpenClawConfig;
   secretOwners: PreparedSecretsRuntimeSnapshot["secretOwners"];
+  degradedOwners: PreparedSecretsRuntimeSnapshot["degradedOwners"];
 }): boolean {
   if (
     activeSnapshotRevision !== params.expectedSecretsRevision ||
@@ -996,6 +997,8 @@ export function setSecretsRuntimeSourceSnapshotIfCurrent(params: {
   if (activeSnapshot) {
     activeSnapshot.sourceConfig = nextSecretsSourceConfig;
     activeSnapshot.secretOwners = structuredClone(params.secretOwners ?? []);
+    activeSnapshot.degradedOwners = structuredClone(params.degradedOwners ?? []);
+    setActiveDegradedSecretOwners(activeSnapshot.degradedOwners);
     activeSnapshotRevision += 1;
     activeSnapshotLineageStartRevision = activeSnapshotRevision;
     activeSnapshotLineageAuthStores = currentAuthStores;

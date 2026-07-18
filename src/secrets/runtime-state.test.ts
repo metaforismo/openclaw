@@ -134,6 +134,7 @@ describe("secrets runtime state", () => {
         runtimeSourceConfig: rawSourceConfig,
         secretsSourceConfig,
         secretOwners: nextSecretOwners,
+        degradedOwners: [],
       }),
     ).toBe(true);
 
@@ -168,6 +169,7 @@ describe("secrets runtime state", () => {
         runtimeSourceConfig: { gateway: { port: 19_031 } },
         secretsSourceConfig,
         secretOwners: [],
+        degradedOwners: [],
       }),
     ).toBe(false);
     expect(getActiveSecretsRuntimeSnapshot()?.secretOwners).toEqual(nextSecretOwners);
