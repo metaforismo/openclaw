@@ -1,0 +1,116 @@
+name: Temporary QQBot guidance patch
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/temp-qqbot-guidance.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-and-push:
+    if: github.repository == 'metaforismo/openclaw'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout automation source
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: automation
+          sparse-checkout: .github/scripts/temp-qqbot-guidance-patch.py
+          sparse-checkout-cone-mode: false
+
+      - name: Checkout target branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/qqbot-actionable-errors
+          path: repo
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: repo/package.json
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: repo/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: repo
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply guarded patch
+        working-directory: repo
+        run: python3 ../automation/.github/scripts/temp-qqbot-guidance-patch.py
+
+      - name: Format changed files
+        working-directory: repo
+        run: |
+          pnpm exec oxfmt --write \
+            extensions/qqbot/src/engine/config/setup-guidance.ts \
+            extensions/qqbot/src/engine/config/setup-guidance.test.ts \
+            extensions/qqbot/src/engine/gateway/gateway.ts \
+            extensions/qqbot/src/engine/gateway/gateway.config.test.ts \
+            extensions/qqbot/src/engine/messaging/outbound.ts \
+            extensions/qqbot/src/engine/messaging/outbound-config.test.ts \
+            extensions/qqbot/src/engine/api/token.ts \
+            extensions/qqbot/src/engine/api/token.test.ts \
+            extensions/qqbot/src/engine/api/api-client.ts \
+            extensions/qqbot/src/engine/api/api-client.test.ts
+
+      - name: Check diff hygiene
+        working-directory: repo
+        run: git diff --check
+
+      - name: Lint changed TypeScript
+        working-directory: repo
+        run: |
+          pnpm exec oxlint --tsconfig config/tsconfig/oxlint.extensions.json \
+            extensions/qqbot/src/engine/config/setup-guidance.ts \
+            extensions/qqbot/src/engine/config/setup-guidance.test.ts \
+            extensions/qqbot/src/engine/gateway/gateway.ts \
+            extensions/qqbot/src/engine/gateway/gateway.config.test.ts \
+            extensions/qqbot/src/engine/messaging/outbound.ts \
+            extensions/qqbot/src/engine/messaging/outbound-config.test.ts \
+            extensions/qqbot/src/engine/api/token.ts \
+            extensions/qqbot/src/engine/api/token.test.ts \
+            extensions/qqbot/src/engine/api/api-client.ts \
+            extensions/qqbot/src/engine/api/api-client.test.ts
+
+      - name: Run focused QQBot tests
+        working-directory: repo
+        run: |
+          node scripts/run-vitest.mjs \
+            extensions/qqbot/src/engine/config/setup-guidance.test.ts \
+            extensions/qqbot/src/engine/gateway/gateway.config.test.ts \
+            extensions/qqbot/src/engine/messaging/outbound-config.test.ts \
+            extensions/qqbot/src/engine/api/token.test.ts \
+            extensions/qqbot/src/engine/api/api-client.test.ts
+
+      - name: Commit verified patch
+        working-directory: repo
+        run: |
+          git config user.name "metaforismo"
+          git config user.email "39646696+metaforismo@users.noreply.github.com"
+          git add \
+            extensions/qqbot/src/engine/config/setup-guidance.ts \
+            extensions/qqbot/src/engine/config/setup-guidance.test.ts \
+            extensions/qqbot/src/engine/gateway/gateway.ts \
+            extensions/qqbot/src/engine/gateway/gateway.config.test.ts \
+            extensions/qqbot/src/engine/messaging/outbound.ts \
+            extensions/qqbot/src/engine/messaging/outbound-config.test.ts \
+            extensions/qqbot/src/engine/api/token.ts \
+            extensions/qqbot/src/engine/api/token.test.ts \
+            extensions/qqbot/src/engine/api/api-client.ts \
+            extensions/qqbot/src/engine/api/api-client.test.ts
+          git commit -m "fix(qqbot): add cause-specific setup guidance"
+          git push origin HEAD:fix/qqbot-actionable-errors
