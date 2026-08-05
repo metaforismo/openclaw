@@ -1,0 +1,50 @@
+name: Temporary heartbeat format verification
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/temp-heartbeat-format.yml
+
+permissions:
+  contents: write
+
+jobs:
+  format-test-and-push:
+    if: github.repository == 'metaforismo/openclaw'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout heartbeat branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/heartbeat-target-none-hint
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up repository toolchain
+        uses: ./.github/actions/setup-node-env
+        with:
+          install-bun: 'false'
+          sticky-disk: 'false'
+          use-actions-cache: 'true'
+
+      - name: Format and verify
+        run: |
+          pnpm exec oxfmt --write \
+            src/infra/heartbeat-events.ts \
+            src/infra/heartbeat-events.test.ts
+          git diff --check
+          node scripts/run-vitest.mjs src/infra/heartbeat-events.test.ts
+
+      - name: Commit formatter output
+        run: |
+          git config user.name "metaforismo"
+          git config user.email "39646696+metaforismo@users.noreply.github.com"
+          git add src/infra/heartbeat-events.ts src/infra/heartbeat-events.test.ts
+          if git diff --cached --quiet; then
+            echo "Formatter produced no changes"
+            exit 0
+          fi
+          git commit -m "style(heartbeat): apply repository formatting"
+          git push origin HEAD:fix/heartbeat-target-none-hint
