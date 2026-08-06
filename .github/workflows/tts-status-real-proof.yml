@@ -19,10 +19,10 @@ jobs:
           ref: proof/tts-status-yield-diagnostics-v3
           fetch-depth: 2
 
-      - name: Verify exact implementation parent
+      - name: Verify exact implementation content
         shell: bash
         run: |
-          test "$(git rev-parse HEAD^)" = "9afbb99efdd3aaaf8853f5ef604aa0a2feedbe58"
+          git merge-base --is-ancestor 9afbb99efdd3aaaf8853f5ef604aa0a2feedbe58 HEAD
           git diff --exit-code 9afbb99efdd3aaaf8853f5ef604aa0a2feedbe58 HEAD -- . \
             ':(exclude).github/workflows/tts-status-real-proof.yml' \
             ':(exclude).github/proof/tts-status-real-proof.ts'
