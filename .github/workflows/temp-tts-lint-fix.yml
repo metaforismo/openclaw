@@ -30,18 +30,7 @@ jobs:
       - name: Apply guarded lint repair
         shell: bash
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path("src/gateway/server-methods/tts.ts")
-          text = path.read_text()
-          old = '  return new Promise((resolve) => setImmediate(resolve));'
-          new = '''  return new Promise((resolve) => {
-    setImmediate(resolve);
-  });'''
-          if text.count(old) != 1:
-              raise SystemExit(f"expected one guarded match, found {text.count(old)}")
-          path.write_text(text.replace(old, new, 1))
-          PY
+          python3 -c 'from pathlib import Path; p=Path("src/gateway/server-methods/tts.ts"); t=p.read_text(); old="  return new Promise((resolve) => setImmediate(resolve));"; new="  return new Promise((resolve) => {\n    setImmediate(resolve);\n  });"; count=t.count(old); count == 1 or (_ for _ in ()).throw(SystemExit(f"expected one guarded match, found {count}")); p.write_text(t.replace(old, new, 1))'
           pnpm exec oxfmt --write src/gateway/server-methods/tts.ts
           git diff --check
 
