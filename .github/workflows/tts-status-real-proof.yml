@@ -1,0 +1,56 @@
+name: TTS status real Gateway concurrency proof
+
+on:
+  push:
+    branches:
+      - proof/tts-status-yield-diagnostics
+
+permissions:
+  contents: read
+
+jobs:
+  gateway-concurrency-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout proof commit
+        uses: actions/checkout@v4
+        with:
+          ref: proof/tts-status-yield-diagnostics
+          fetch-depth: 2
+
+      - name: Verify exact implementation parent
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD^)" = "0d8e739a826ea7c5b777494fc61a19ed31747fde"
+          git diff --exit-code 0d8e739a826ea7c5b777494fc61a19ed31747fde HEAD -- . \
+            ':(exclude).github/workflows/tts-status-real-proof.yml' \
+            ':(exclude).github/proof/tts-status-real-proof.ts'
+          sed -i 's/38c125a6ebfecb3bdb8c72d8ec9a03eca7c7ac5f/0d8e739a826ea7c5b777494fc61a19ed31747fde/g' \
+            .github/proof/tts-status-real-proof.ts
+
+      - name: Set up repository toolchain
+        uses: ./.github/actions/setup-node-env
+        with:
+          install-deps: true
+          frozen-lockfile: true
+          sticky-disk: false
+          use-actions-cache: true
+
+      - name: Build exact implementation
+        run: pnpm build
+
+      - name: Exercise concurrent real Gateway RPCs
+        shell: bash
+        run: |
+          pnpm exec tsx .github/proof/tts-status-real-proof.ts
+          test -s tts-status-real-gateway-proof.json
+          cat tts-status-real-gateway-proof.json
+
+      - name: Upload proof artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tts-status-real-gateway-proof-0d8e739a826e
+          path: tts-status-real-gateway-proof.json
+          if-no-files-found: error
+          retention-days: 30
