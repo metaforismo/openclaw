@@ -1,0 +1,269 @@
+name: Temporary review repair verification
+
+on:
+  push:
+    branches:
+      - automation/review-fixes-v2
+
+permissions:
+  contents: write
+
+jobs:
+  repair-tts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout TTS PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/tts-status-yield-diagnostics
+          fetch-depth: 2
+
+      - name: Set up repository toolchain
+        uses: ./.github/actions/setup-node-env
+        with:
+          install-deps: true
+          frozen-lockfile: true
+          sticky-disk: false
+          use-actions-cache: true
+
+      - name: Apply guarded TTS compatibility repair
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          source = Path("src/gateway/server-methods/tts.ts")
+          text = source.read_text()
+          old = "        .filter((candidate) => configuredByProvider.get(candidate) === true);"
+          new = "\n".join([
+              "        .filter((candidate) => {",
+              "          if (configuredByProvider.has(candidate)) {",
+              "            return configuredByProvider.get(candidate) === true;",
+              "          }",
+              "          return isTtsProviderConfigured(config, candidate, cfg);",
+              "        });",
+          ])
+          if text.count(old) != 1:
+              raise SystemExit(f"expected one TTS filter match, found {text.count(old)}")
+          source.write_text(text.replace(old, new, 1))
+
+          test_path = Path("src/gateway/server-methods/tts.test.ts")
+          tests = test_path.read_text()
+          marker = '  it.each(["tts.status", "tts.providers"] as const)('
+          regression = '''  it("probes configured fallbacks missing from the prepared inventory", async () => {
+            const providers = [
+              { id: "openai", label: "OpenAI", isConfigured: vi.fn(() => true) },
+              { id: "google", label: "Google", isConfigured: vi.fn(() => false) },
+            ];
+            mocks.listSpeechProviders.mockReturnValue(providers);
+            mocks.resolveTtsProviderOrder.mockReturnValue(["openai", "google", "voice-model-only"]);
+            mocks.isTtsProviderConfigured.mockImplementation((_config, provider) => {
+              const providerId = typeof provider === "string" ? provider : provider.id;
+              return providerId !== "google";
+            });
+
+            const { ttsHandlers } = await import("./tts.js");
+            const respond = vi.fn();
+            await expectDefined(
+              ttsHandlers["tts.status"],
+              'ttsHandlers["tts.status"] test invariant',
+            )({
+              params: {},
+              respond,
+              context: { getRuntimeConfig: mocks.getRuntimeConfig },
+            } as never);
+
+            expect(mocks.isTtsProviderConfigured.mock.calls.map((call) => call[1])).toEqual([
+              providers[0],
+              providers[1],
+              "voice-model-only",
+            ]);
+            expect(respond).toHaveBeenCalledWith(
+              true,
+              expect.objectContaining({
+                fallbackProvider: "voice-model-only",
+                fallbackProviders: ["voice-model-only"],
+                providerStates: [
+                  { id: "openai", label: "OpenAI", configured: true },
+                  { id: "google", label: "Google", configured: false },
+                ],
+              }),
+            );
+          });
+
+          '''
+          if regression.strip() in tests:
+              raise SystemExit("TTS regression already present")
+          if tests.count(marker) != 1:
+              raise SystemExit(f"expected one TTS test marker, found {tests.count(marker)}")
+          test_path.write_text(tests.replace(marker, regression + marker, 1))
+          PY
+          pnpm exec oxfmt --write \
+            src/gateway/server-methods/tts.ts \
+            src/gateway/server-methods/tts.test.ts
+          git diff --check
+
+      - name: Verify TTS repair
+        shell: bash
+        run: |
+          pnpm exec oxlint \
+            src/gateway/server-methods/tts.ts \
+            src/gateway/server-methods/tts.test.ts
+          node scripts/run-vitest.mjs \
+            src/gateway/server-methods/tts.test.ts \
+            src/tts/provider-registry.test.ts \
+            src/tts/tts.test.ts \
+            src/plugins/contracts/tts.contract.test.ts
+          pnpm tsgo:core
+          pnpm tsgo:core:test
+          pnpm build
+
+      - name: Push repaired TTS branch
+        shell: bash
+        run: |
+          git config user.name "metaforismo"
+          git config user.email "39646696+metaforismo@users.noreply.github.com"
+          git add src/gateway/server-methods/tts.ts src/gateway/server-methods/tts.test.ts
+          git commit -m "fix(gateway): preserve cold TTS fallback probes"
+          git push origin HEAD:fix/tts-status-yield-diagnostics
+
+  repair-qqbot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout QQBot PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/qqbot-actionable-errors
+          fetch-depth: 2
+
+      - name: Set up repository toolchain
+        uses: ./.github/actions/setup-node-env
+        with:
+          install-deps: true
+          frozen-lockfile: true
+          sticky-disk: false
+          use-actions-cache: true
+
+      - name: Apply guarded QQBot tagged-media repair
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          source = Path("extensions/qqbot/src/engine/messaging/outbound.ts")
+          text = source.read_text()
+          marker = '''  const mediaTagMatches = text.match(mediaTagRegex);
+
+          if (mediaTagMatches && mediaTagMatches.length > 0) {'''
+          replacement = '''  const mediaTagMatches = text.match(mediaTagRegex);
+
+          if (!replyToId && (!text || text.trim().length === 0)) {
+            debugError("[qqbot] sendText error: proactive message content cannot be empty");
+            return {
+              channel: "qqbot",
+              error: "Proactive messages require non-empty content (--message cannot be empty)",
+            };
+          }
+
+          if (!account.appId || !account.clientSecret) {
+            return { channel: "qqbot", error: qqbotNotConfiguredMessage(account.accountId) };
+          }
+
+          if (mediaTagMatches && mediaTagMatches.length > 0) {'''
+          if text.count(marker) != 1:
+              raise SystemExit(f"expected one media marker, found {text.count(marker)}")
+          text = text.replace(marker, replacement, 1)
+
+          old_tail = '''  if (!replyToId) {
+            if (!text || text.trim().length === 0) {
+              debugError("[qqbot] sendText error: proactive message content cannot be empty");
+              return {
+                channel: "qqbot",
+                error: "Proactive messages require non-empty content (--message cannot be empty)",
+              };
+            }
+            debugLog(`[qqbot] sendText: sending proactive message to ${to}, length=${text.length}`);
+          }
+
+          if (!account.appId || !account.clientSecret) {
+            return { channel: "qqbot", error: qqbotNotConfiguredMessage(account.accountId) };
+          }
+
+          try {'''
+          new_tail = '''  if (!replyToId) {
+            debugLog(`[qqbot] sendText: sending proactive message to ${to}, length=${text.length}`);
+          }
+
+          try {'''
+          if text.count(old_tail) != 1:
+              raise SystemExit(f"expected one outbound tail match, found {text.count(old_tail)}")
+          source.write_text(text.replace(old_tail, new_tail, 1))
+
+          test_path = Path("extensions/qqbot/src/engine/messaging/outbound-config.test.ts")
+          tests = test_path.read_text()
+          closing = "});\n"
+          regression = '''
+            it.each([
+              ["default", "<qqimg>https://example.com/image.png</qqimg>", "channels.qqbot.appId", true],
+              [
+                "operations",
+                "report <qqfile>https://example.com/report.pdf</qqfile>",
+                "channels.qqbot.accounts.operations.appId",
+                false,
+              ],
+            ] as const)(
+              "preflights tagged media for the %s account",
+              async (accountId, text, expectedPath, expectsDefaultEnv) => {
+                const result = await sendText({
+                  account: makeAccount(accountId),
+                  to: "user-openid",
+                  text,
+                });
+
+                expect(result.error).toContain(expectedPath);
+                if (expectsDefaultEnv) {
+                  expect(result.error).toContain("QQBOT_APP_ID and QQBOT_CLIENT_SECRET");
+                } else {
+                  expect(result.error).not.toContain("QQBOT_APP_ID");
+                  expect(result.error).not.toContain("QQBOT_CLIENT_SECRET");
+                }
+              },
+            );
+          '''
+          if "preflights tagged media" in tests:
+              raise SystemExit("QQBot tagged-media regression already present")
+          if not tests.endswith(closing):
+              raise SystemExit("QQBot test file closing marker not found")
+          test_path.write_text(tests[:-len(closing)] + regression + closing)
+          PY
+          pnpm exec oxfmt --write \
+            extensions/qqbot/src/engine/messaging/outbound.ts \
+            extensions/qqbot/src/engine/messaging/outbound-config.test.ts
+          git diff --check
+
+      - name: Verify QQBot repair
+        shell: bash
+        run: |
+          pnpm exec oxlint \
+            extensions/qqbot/src/engine/messaging/outbound.ts \
+            extensions/qqbot/src/engine/messaging/outbound-config.test.ts
+          node scripts/run-vitest.mjs \
+            extensions/qqbot/src/engine/messaging/outbound-config.test.ts \
+            extensions/qqbot/src/engine/api/api-client.test.ts \
+            extensions/qqbot/src/engine/api/token.test.ts \
+            extensions/qqbot/src/engine/gateway/gateway.config.test.ts
+          pnpm tsgo:core
+          pnpm build
+
+      - name: Push repaired QQBot branch
+        shell: bash
+        run: |
+          git config user.name "metaforismo"
+          git config user.email "39646696+metaforismo@users.noreply.github.com"
+          git add \
+            extensions/qqbot/src/engine/messaging/outbound.ts \
+            extensions/qqbot/src/engine/messaging/outbound-config.test.ts
+          git commit -m "fix(qqbot): preflight tagged media credentials"
+          git push origin HEAD:fix/qqbot-actionable-errors
