@@ -1,0 +1,143 @@
+name: Temporary QQBot review repair
+
+on:
+  push:
+    branches:
+      - automation/qqbot-review-fix-v2
+
+permissions:
+  contents: write
+
+jobs:
+  repair-test-push:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout QQBot PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/qqbot-actionable-errors
+          fetch-depth: 2
+
+      - name: Set up repository toolchain
+        uses: ./.github/actions/setup-node-env
+        with:
+          install-deps: true
+          frozen-lockfile: true
+          sticky-disk: false
+          use-actions-cache: true
+
+      - name: Apply guarded tagged-media preflight repair
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          source = Path("extensions/qqbot/src/engine/messaging/outbound.ts")
+          text = source.read_text()
+          anchor = "  const mediaTagMatches = text.match(mediaTagRegex);\n"
+          preflight = '''
+
+          if (!replyToId && (!text || text.trim().length === 0)) {
+            debugError("[qqbot] sendText error: proactive message content cannot be empty");
+            return {
+              channel: "qqbot",
+              error: "Proactive messages require non-empty content (--message cannot be empty)",
+            };
+          }
+
+          if (!account.appId || !account.clientSecret) {
+            return { channel: "qqbot", error: qqbotNotConfiguredMessage(account.accountId) };
+          }
+          '''
+          if text.count(anchor) != 1:
+              raise SystemExit(f"expected one media match anchor, found {text.count(anchor)}")
+          if "if (!replyToId && (!text || text.trim().length === 0))" in text:
+              raise SystemExit("tagged-media preflight already present")
+          text = text.replace(anchor, anchor + preflight, 1)
+
+          tail_start = text.rfind("  if (!replyToId) {")
+          if tail_start < 0:
+              raise SystemExit("proactive tail block not found")
+          try_start = text.find("  try {", tail_start)
+          if try_start < 0:
+              raise SystemExit("outbound try block not found")
+          old_tail = text[tail_start:try_start]
+          if "Proactive messages require non-empty content" not in old_tail:
+              raise SystemExit("unexpected proactive tail shape")
+          if "qqbotNotConfiguredMessage(account.accountId)" not in old_tail:
+              raise SystemExit("unexpected credential tail shape")
+          text = text[:tail_start] + '''  if (!replyToId) {
+            debugLog(`[qqbot] sendText: sending proactive message to ${to}, length=${text.length}`);
+          }
+
+          ''' + text[try_start:]
+          source.write_text(text)
+
+          test_path = Path("extensions/qqbot/src/engine/messaging/outbound-config.test.ts")
+          tests = test_path.read_text()
+          regression = '''
+
+          it.each([
+            ["default", "<qqimg>https://example.com/image.png</qqimg>", "channels.qqbot.appId", true],
+            [
+              "operations",
+              "report <qqfile>https://example.com/report.pdf</qqfile>",
+              "channels.qqbot.accounts.operations.appId",
+              false,
+            ],
+          ] as const)(
+            "preflights tagged media for the %s account",
+            async (accountId, text, expectedPath, expectsDefaultEnv) => {
+              const result = await sendText({
+                account: makeAccount(accountId),
+                to: "user-openid",
+                text,
+              });
+
+              expect(result.error).toContain(expectedPath);
+              if (expectsDefaultEnv) {
+                expect(result.error).toContain("QQBOT_APP_ID and QQBOT_CLIENT_SECRET");
+              } else {
+                expect(result.error).not.toContain("QQBOT_APP_ID");
+                expect(result.error).not.toContain("QQBOT_CLIENT_SECRET");
+              }
+            },
+          );
+          '''
+          if "preflights tagged media" in tests:
+              raise SystemExit("tagged-media regression already present")
+          closing = "\n});\n"
+          if tests.count(closing) != 1 or not tests.endswith(closing):
+              raise SystemExit("unexpected QQBot test closing shape")
+          test_path.write_text(tests[:-len(closing)] + regression + closing)
+          PY
+          pnpm exec oxfmt --write \
+            extensions/qqbot/src/engine/messaging/outbound.ts \
+            extensions/qqbot/src/engine/messaging/outbound-config.test.ts
+          git diff --check
+
+      - name: Verify focused repair
+        shell: bash
+        run: |
+          pnpm exec oxlint \
+            extensions/qqbot/src/engine/messaging/outbound.ts \
+            extensions/qqbot/src/engine/messaging/outbound-config.test.ts
+          node scripts/run-vitest.mjs \
+            extensions/qqbot/src/engine/messaging/outbound-config.test.ts \
+            extensions/qqbot/src/engine/api/api-client.test.ts \
+            extensions/qqbot/src/engine/api/token.test.ts \
+            extensions/qqbot/src/engine/gateway/gateway.config.test.ts
+          pnpm tsgo:core
+          pnpm build
+
+      - name: Push repaired PR branch
+        shell: bash
+        run: |
+          git config user.name "metaforismo"
+          git config user.email "39646696+metaforismo@users.noreply.github.com"
+          git add \
+            extensions/qqbot/src/engine/messaging/outbound.ts \
+            extensions/qqbot/src/engine/messaging/outbound-config.test.ts
+          git commit -m "fix(qqbot): preflight tagged media credentials"
+          git push origin HEAD:fix/qqbot-actionable-errors
