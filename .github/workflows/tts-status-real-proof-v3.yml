@@ -24,7 +24,7 @@ jobs:
         run: |
           git merge-base --is-ancestor 9afbb99efdd3aaaf8853f5ef604aa0a2feedbe58 HEAD
           git diff --exit-code 9afbb99efdd3aaaf8853f5ef604aa0a2feedbe58 HEAD -- . \
-            ':(exclude).github/workflows/tts-status-real-proof.yml' \
+            ':(exclude).github/workflows/tts-status-real-proof-v3.yml' \
             ':(exclude).github/proof/tts-status-real-proof.ts'
           sed -i 's/38c125a6ebfecb3bdb8c72d8ec9a03eca7c7ac5f/9afbb99efdd3aaaf8853f5ef604aa0a2feedbe58/g' \
             .github/proof/tts-status-real-proof.ts
