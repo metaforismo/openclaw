@@ -1,0 +1,67 @@
+name: Temporary TTS lint repair
+
+on:
+  push:
+    branches:
+      - automation/tts-lint-fix
+
+permissions:
+  contents: write
+
+jobs:
+  repair-test-push:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout target PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/tts-status-yield-diagnostics
+          fetch-depth: 2
+
+      - name: Set up repository toolchain
+        uses: ./.github/actions/setup-node-env
+        with:
+          install-deps: true
+          frozen-lockfile: true
+          sticky-disk: false
+          use-actions-cache: true
+
+      - name: Apply guarded lint repair
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("src/gateway/server-methods/tts.ts")
+          text = path.read_text()
+          old = '  return new Promise((resolve) => setImmediate(resolve));'
+          new = '''  return new Promise((resolve) => {
+    setImmediate(resolve);
+  });'''
+          if text.count(old) != 1:
+              raise SystemExit(f"expected one guarded match, found {text.count(old)}")
+          path.write_text(text.replace(old, new, 1))
+          PY
+          pnpm exec oxfmt --write src/gateway/server-methods/tts.ts
+          git diff --check
+
+      - name: Verify focused lint and tests
+        shell: bash
+        run: |
+          pnpm exec oxlint src/gateway/server-methods/tts.ts
+          node scripts/run-vitest.mjs \
+            src/gateway/server-methods/tts.test.ts \
+            src/tts/provider-registry.test.ts \
+            src/tts/tts.test.ts \
+            src/plugins/contracts/tts.contract.test.ts
+          pnpm tsgo:core
+          pnpm tsgo:core:test
+
+      - name: Push repaired branch
+        shell: bash
+        run: |
+          git config user.name "metaforismo"
+          git config user.email "39646696+metaforismo@users.noreply.github.com"
+          git add src/gateway/server-methods/tts.ts
+          git commit -m "fix(gateway): satisfy TTS status lint contract"
+          git push origin HEAD:fix/tts-status-yield-diagnostics
