@@ -1,0 +1,130 @@
+name: QQBot actionable error real behavior proof
+
+on:
+  push:
+    branches:
+      - proof/qqbot-actionable-errors
+
+permissions:
+  contents: read
+
+jobs:
+  outbound-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: 9fd8dfead8928ebe2712cf510548b7cf6a600169
+          fetch-depth: 1
+
+      - name: Set up repository toolchain
+        uses: ./.github/actions/setup-node-env
+        with:
+          install-deps: true
+          frozen-lockfile: true
+          sticky-disk: false
+          use-actions-cache: true
+
+      - name: Exercise real QQBot outbound boundary
+        shell: bash
+        run: |
+          cat > qqbot-real-proof.ts <<'TS'
+          import { writeFileSync } from "node:fs";
+          import { sendText } from "./extensions/qqbot/src/engine/messaging/outbound.ts";
+
+          const makeAccount = (accountId: string) => ({
+            accountId,
+            appId: "",
+            clientSecret: "",
+            markdownSupport: false,
+            config: {},
+          });
+
+          const invoke = async (accountId: string, text: string) =>
+            await sendText({
+              to: "user:redacted-proof-target",
+              text,
+              account: makeAccount(accountId),
+            } as never);
+
+          const defaultText = await invoke("default", "proof message");
+          const namedText = await invoke("operations", "proof message");
+          const defaultTaggedImage = await invoke(
+            "default",
+            "<qqimg>https://example.invalid/proof.png</qqimg>",
+          );
+          const namedTaggedFile = await invoke(
+            "operations",
+            "report <qqfile>https://example.invalid/proof.pdf</qqfile>",
+          );
+
+          const errors = {
+            defaultText: defaultText.error ?? "",
+            namedText: namedText.error ?? "",
+            defaultTaggedImage: defaultTaggedImage.error ?? "",
+            namedTaggedFile: namedTaggedFile.error ?? "",
+          };
+          const defaultErrors = [errors.defaultText, errors.defaultTaggedImage];
+          const namedErrors = [errors.namedText, errors.namedTaggedFile];
+          const assertions = {
+            defaultTextUsesConfigPath: errors.defaultText.includes("channels.qqbot.appId"),
+            defaultTaggedImageUsesConfigPath: errors.defaultTaggedImage.includes(
+              "channels.qqbot.appId",
+            ),
+            defaultPathsUseSupportedEnvVars: defaultErrors.every((error) =>
+              error.includes("QQBOT_APP_ID and QQBOT_CLIENT_SECRET"),
+            ),
+            namedTextUsesAccountPath: errors.namedText.includes(
+              "channels.qqbot.accounts.operations.appId",
+            ),
+            namedTaggedFileUsesAccountPath: errors.namedTaggedFile.includes(
+              "channels.qqbot.accounts.operations.appId",
+            ),
+            namedPathsOmitDefaultEnvVars: namedErrors.every(
+              (error) =>
+                !error.includes("QQBOT_APP_ID") && !error.includes("QQBOT_CLIENT_SECRET"),
+            ),
+            allPathsLinkDocs: Object.values(errors).every((error) =>
+              error.includes("https://docs.openclaw.ai/channels/qqbot"),
+            ),
+          };
+          if (Object.values(assertions).some((value) => !value)) {
+            throw new Error(`QQBot proof assertion failed: ${JSON.stringify(assertions)}`);
+          }
+
+          const verdict = {
+            verdict: "pass",
+            exactPrHead: "9fd8dfead8928ebe2712cf510548b7cf6a600169",
+            boundary: "extensions/qqbot/src/engine/messaging/outbound.ts#sendText",
+            networkAttempted: false,
+            secretsUsed: false,
+            cases: {
+              defaultText: { error: errors.defaultText },
+              namedText: { accountId: "operations", error: errors.namedText },
+              defaultTaggedImage: {
+                tag: "qqimg",
+                error: errors.defaultTaggedImage,
+              },
+              namedTaggedFile: {
+                accountId: "operations",
+                tag: "qqfile",
+                error: errors.namedTaggedFile,
+              },
+            },
+            assertions,
+          };
+          writeFileSync("qqbot-real-proof.json", `${JSON.stringify(verdict, null, 2)}\n`);
+          console.log(JSON.stringify(verdict, null, 2));
+          TS
+          pnpm exec tsx qqbot-real-proof.ts
+          rm qqbot-real-proof.ts
+
+      - name: Upload proof artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: qqbot-actionable-error-proof-9fd8dfead892
+          path: qqbot-real-proof.json
+          if-no-files-found: error
+          retention-days: 30
