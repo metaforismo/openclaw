@@ -1,0 +1,68 @@
+name: Heartbeat target-none real Gateway proof
+
+on:
+  push:
+    branches:
+      - proof/heartbeat-target-none-message-v2
+
+permissions:
+  contents: read
+
+jobs:
+  gateway-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout proof commit
+        uses: actions/checkout@v4
+        with:
+          ref: proof/heartbeat-target-none-message-v2
+          fetch-depth: 2
+
+      - name: Verify exact implementation parent
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD^)" = "629e59da23ecbbdbd00d740e531985a9b6235ca6"
+          git diff --exit-code 629e59da23ecbbdbd00d740e531985a9b6235ca6 HEAD -- . \
+            ':(exclude).github/workflows/heartbeat-real-proof.yml'
+
+      - name: Set up repository toolchain
+        uses: ./.github/actions/setup-node-env
+        with:
+          install-deps: true
+          frozen-lockfile: true
+          sticky-disk: false
+          use-actions-cache: true
+
+      - name: Add inspectable transcript capture to real Gateway E2E
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("test/e2e/qa-lab/runtime/gateway-rpc-automation.e2e.test.ts")
+          text = path.read_text()
+          old = '''      } finally {\n        if (gateway) {'''
+          new = '''        const proofHeartbeat = await client.request<{\n          ts: number;\n          status: string;\n          reason?: string;\n          message?: string;\n          preview?: string;\n        }>("last-heartbeat", {});\n        expect(proofHeartbeat).toMatchObject({\n          status: "skipped",\n          reason: "target-none",\n          message: "Heartbeat delivery is disabled by configuration (target: none).",\n          preview: `Heartbeat handled: ${wakeText}`,\n        });\n        expect(proofHeartbeat.ts).toBeGreaterThanOrEqual(wakeRequestedAt);\n        const proof = {\n          verdict: "pass",\n          exactPrHead: "629e59da23ecbbdbd00d740e531985a9b6235ca6",\n          transport: "real Gateway WebSocket RPC",\n          method: "last-heartbeat",\n          response: proofHeartbeat,\n        };\n        await fs.writeFile(\n          path.join(process.cwd(), "heartbeat-real-gateway-proof.json"),\n          `${JSON.stringify(proof, null, 2)}\\n`,\n        );\n        console.log("HEARTBEAT_REAL_GATEWAY_PROOF");\n        console.log(JSON.stringify(proof, null, 2));\n      } finally {\n        if (gateway) {'''
+          if text.count(old) != 1:
+              raise SystemExit(f"expected one proof insertion point, found {text.count(old)}")
+          path.write_text(text.replace(old, new, 1))
+          PY
+          git diff --check
+
+      - name: Run real Gateway RPC proof
+        shell: bash
+        env:
+          VITEST_POOL_SIZE: "1"
+        run: |
+          node scripts/run-vitest.mjs test/e2e/qa-lab/runtime/gateway-rpc-automation.e2e.test.ts
+          test -s heartbeat-real-gateway-proof.json
+          cat heartbeat-real-gateway-proof.json
+
+      - name: Upload proof artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: heartbeat-real-gateway-proof-629e59da23ec
+          path: heartbeat-real-gateway-proof.json
+          if-no-files-found: error
+          retention-days: 30
